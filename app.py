@@ -4,7 +4,7 @@
 import os
 import re
 import threading
-from flask import Flask, request
+from flask import Flask, request, g
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client
 from dotenv import load_dotenv
@@ -19,6 +19,14 @@ from asistente_ia import consultar_ia, respuesta_ayuda
 load_dotenv()
 
 app = Flask(__name__)
+
+
+@app.after_request
+def log_response(response):
+    numero = getattr(g, "numero_cliente", "?")
+    print(f"[OUT] {numero}: {response.get_data(as_text=True)!r}")
+    return response
+
 
 ACCOUNT_SID   = os.getenv("TWILIO_ACCOUNT_SID")
 AUTH_TOKEN    = os.getenv("TWILIO_AUTH_TOKEN")
@@ -271,6 +279,9 @@ def webhook():
     numero_cliente = request.form.get("From")
     mensaje        = request.form.get("Body", "").strip()
     mensaje_lower  = mensaje.lower().strip()
+
+    print(f"[IN]  {numero_cliente}: {mensaje!r}")
+    g.numero_cliente = numero_cliente
 
     resp = MessagingResponse()
     msg  = resp.message()
