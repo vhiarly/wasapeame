@@ -89,6 +89,7 @@ def es_numero_negocio(numero):
     """Retorna el codigo si el numero pertenece a un negocio registrado, o None."""
     datos = cargar_negocios()
     for cod, neg in datos["negocios"].items():
+        print(f"[DEBUG es_numero_negocio] comparando {numero} vs {neg['numero_negocio']} ({cod})")
         if neg["numero_negocio"] == numero:
             return cod
     return None

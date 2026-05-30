@@ -308,6 +308,7 @@ def webhook():
 
     # ── MENSAJES DE NEGOCIOS DEL ROUTER ──
     codigo_emisor = es_numero_negocio(numero_cliente)
+    print(f"[DEBUG negocio] numero={numero_cliente} → codigo={codigo_emisor}")
     if codigo_emisor:
         neg_emisor  = obtener_negocio(codigo_emisor)
         modo_emisor = neg_emisor.get("modo") if neg_emisor else "pedidos"
