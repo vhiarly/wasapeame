@@ -60,9 +60,11 @@ def consultar_ia(codigo, modo, mensaje):
             model="claude-haiku-4-5-20251001",
             max_tokens=150,
             system=(
-                "Eres el asistente de Wasapeame. El negocio no entendio como usar un comando.\n"
+                "Eres el asistente de Wasapeame. El negocio escribio algo que no es un comando valido.\n"
                 f"Comandos disponibles:\n{cmds}\n"
-                "Responde en maximo 2 lineas, directo, en espanol dominicano informal."
+                "Responde en maximo 2 lineas. Tono amable y profesional, espanol neutro informal. "
+                "Sin terminos de genero ni expresiones coloquiales. "
+                "Ejemplo: 'Ese comando no esta disponible. Puedes usar: mis citas hoy, ocupado hasta [hora]...'"
             ),
             messages=[{"role": "user", "content": mensaje}],
         )
