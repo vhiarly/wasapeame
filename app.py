@@ -28,6 +28,7 @@ estados          = {}
 cola_rebanado    = {}
 timers           = {}
 contador_turnos  = 0
+cola_pedidos     = []  # [{numero_cliente, turno, items, direccion, referencia, total}]
 
 # Palabras para cancelar toda la orden
 PALABRAS_CANCELAR = [
@@ -138,22 +139,77 @@ def mostrar_orden(numero_cliente):
     return texto
 
 
-def notificar_dueno(numero_cliente, turno):
-    orden      = ordenes_activas[numero_cliente]["items"]
-    direccion  = ordenes_activas[numero_cliente]["direccion"]
-    referencia = ordenes_activas[numero_cliente]["referencia"]
-    total      = sum(i["precio"] for i in orden)
-
-    texto = f"🔔 *ORDEN NUEVA — Turno #T-{turno}*\n\n"
+def enviar_orden_al_dueno(pedido):
+    texto = f"🔔 *ORDEN — Turno #T-{pedido['turno']}*\n\n"
     texto += "🛒 *Pedido:*\n"
-    for item in orden:
+    for item in pedido["items"]:
         texto += formato_item(item) + "\n"
-    texto += f"\n💰 Total: ${total:.0f} pesos\n"
-    texto += f"📍 Dirección: {direccion}\n"
-    texto += f"📌 Referencia: {referencia}\n"
-    texto += f"📞 Cliente: {numero_cliente}"
-
+    texto += f"\n💰 Total: ${pedido['total']:.0f} pesos\n"
+    texto += f"📍 Dirección: {pedido['direccion']}\n"
+    texto += f"📌 Referencia: {pedido['referencia']}\n"
+    texto += f"📞 Cliente: {pedido['numero_cliente']}\n\n"
+    texto += "Escribe *listo* cuando hayas despachado este pedido."
     client.messages.create(body=texto, from_=TWILIO_NUMBER, to=DUEÑO)
+
+
+def encolar_pedido(numero_cliente, turno):
+    """Agrega la orden a la cola. Retorna cuántas órdenes hay antes."""
+    orden = ordenes_activas[numero_cliente]
+    items = list(orden["items"])
+    pedido = {
+        "numero_cliente": numero_cliente,
+        "turno":          turno,
+        "items":          items,
+        "direccion":      orden["direccion"],
+        "referencia":     orden["referencia"],
+        "total":          sum(i["precio"] for i in items),
+    }
+    cola_pedidos.append(pedido)
+    ordenes_antes = len(cola_pedidos) - 1
+    if ordenes_antes == 0:
+        enviar_orden_al_dueno(pedido)
+    return ordenes_antes
+
+
+def procesar_listo_dueno():
+    if not cola_pedidos:
+        client.messages.create(
+            body="No hay pedidos en cola.",
+            from_=TWILIO_NUMBER,
+            to=DUEÑO
+        )
+        return
+
+    completado = cola_pedidos.pop(0)
+    client.messages.create(
+        body="🛵 Tu pedido está en camino!",
+        from_=TWILIO_NUMBER,
+        to=completado["numero_cliente"]
+    )
+
+    if not cola_pedidos:
+        client.messages.create(
+            body="✅ No hay más pedidos en cola.",
+            from_=TWILIO_NUMBER,
+            to=DUEÑO
+        )
+        return
+
+    siguiente = cola_pedidos[0]
+    enviar_orden_al_dueno(siguiente)
+    client.messages.create(
+        body="🛵 Tu pedido está siendo preparado, sale en unos minutos!",
+        from_=TWILIO_NUMBER,
+        to=siguiente["numero_cliente"]
+    )
+
+    for i, pedido in enumerate(cola_pedidos[1:], start=1):
+        s = "s" if i > 1 else ""
+        client.messages.create(
+            body=f"📦 Hay {i} pedido{s} antes que tú.",
+            from_=TWILIO_NUMBER,
+            to=pedido["numero_cliente"]
+        )
 
 
 def detectar_quitar(mensaje):
@@ -214,6 +270,12 @@ def webhook():
 
     resp = MessagingResponse()
     msg  = resp.message()
+
+    # ── MENSAJES DEL DUEÑO ──
+    if numero_cliente == DUEÑO:
+        if "listo" in mensaje_lower:
+            procesar_listo_dueno()
+        return str(resp)
 
     if numero_cliente not in ordenes_activas:
         ordenes_activas[numero_cliente] = {"items": [], "direccion": "", "referencia": ""}
@@ -312,18 +374,25 @@ def webhook():
         orden = ordenes_activas[numero_cliente]["items"]
         total = sum(i["precio"] for i in orden)
 
+        for item in orden:
+            reducir_inventario(item["clave"], item["cantidad"])
+
+        ordenes_antes = encolar_pedido(numero_cliente, turno)
+
         resumen = f"✅ *Orden confirmada! — Turno #T-{turno}*\n\n"
         resumen += "🛒 *Tu pedido:*\n"
         for item in orden:
             resumen += formato_item(item) + "\n"
-            reducir_inventario(item["clave"], item["cantidad"])
         resumen += f"\n💰 *Total: ${total:.0f} pesos*\n"
         resumen += f"📍 *Dirección:* {ordenes_activas[numero_cliente]['direccion']}\n"
         resumen += f"📌 *Referencia:* {referencia}\n\n"
-        resumen += "¡Tu orden está en camino pronto! 🛵"
+        if ordenes_antes == 0:
+            resumen += "🛵 Tu pedido está siendo preparado, sale en unos minutos!"
+        else:
+            s = "s" if ordenes_antes > 1 else ""
+            resumen += f"📦 Hay {ordenes_antes} pedido{s} antes que tú. Te avisamos cuando empiece el tuyo."
         msg.body(resumen)
 
-        notificar_dueno(numero_cliente, turno)
         detener_timer(numero_cliente)
         limpiar_orden(numero_cliente)
         return str(resp)
