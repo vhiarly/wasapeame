@@ -14,6 +14,7 @@ from inventario import (buscar_producto, parsear_linea_multiple,
 from negocio_router import detectar_codigo, obtener_negocio
 from flujo_pedidos import manejar_pedido, manejar_negocio, tiene_flujo_activo, es_numero_negocio
 from flujo_citas import manejar_cita, manejar_negocio_citas, tiene_flujo_citas, tiene_sesion_admin_citas
+from asistente_ia import consultar_ia, respuesta_ayuda
 
 load_dotenv()
 
@@ -285,11 +286,21 @@ def webhook():
     # ── MENSAJES DE NEGOCIOS DEL ROUTER ──
     codigo_emisor = es_numero_negocio(numero_cliente)
     if codigo_emisor:
-        neg_emisor = obtener_negocio(codigo_emisor)
-        if neg_emisor and neg_emisor.get("modo") == "citas":
+        neg_emisor  = obtener_negocio(codigo_emisor)
+        modo_emisor = neg_emisor.get("modo") if neg_emisor else "pedidos"
+
+        if mensaje_lower.strip() == "ayuda":
+            msg.body(respuesta_ayuda(modo_emisor))
+            return str(resp)
+
+        if modo_emisor == "citas":
             resultado = manejar_negocio_citas(numero_cliente, mensaje, twilio_send)
         else:
             resultado = manejar_negocio(numero_cliente, codigo_emisor, mensaje, twilio_send)
+
+        if resultado is None:
+            resultado = consultar_ia(codigo_emisor, modo_emisor, mensaje)
+
         if resultado:
             msg.body(resultado)
         return str(resp)

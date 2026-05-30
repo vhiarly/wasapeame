@@ -59,7 +59,7 @@
       "modo": "pedidos",
       "tipo": "CO",
       "activo": true,
-      "numero_negocio": "whatsapp:+18091234567",
+      "numero_negocio": "whatsapp:+18298789906",
       "pin": "1234",
       "catalogo": {
         "salami": {
@@ -93,7 +93,7 @@
       "modo": "citas",
       "tipo": "BA",
       "activo": true,
-      "numero_negocio": "whatsapp:+18097654321",
+      "numero_negocio": "whatsapp:+18492659906",
       "pin": "5678",
       "horario": {
         "lunes": {
@@ -181,6 +181,14 @@
           "nombre_servicio": "Corte simple",
           "fecha": "2026-06-01",
           "hora": "09:00",
+          "duracion_minutos": 30
+        },
+        {
+          "numero_cliente": "whatsapp:+18492659906",
+          "servicio": "barba_sola",
+          "nombre_servicio": "Barba sola",
+          "fecha": "2026-06-03",
+          "hora": "16:30",
           "duracion_minutos": 30
         }
       ]
