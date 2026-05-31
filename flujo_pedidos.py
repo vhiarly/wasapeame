@@ -273,8 +273,59 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send):
 
     # ── PEDIDO ENVIADO ──
     if s == "pedido_enviado":
+        if "ajustar" in msg:
+            estado["estado"] = "ajustando"
+            return (_resumen(estado["items"]) +
+                    "\n\nQue quieres cambiar?\n\n"
+                    "• quitar [producto] para eliminarlo\n"
+                    "• escribe un producto para agregarlo\n"
+                    "• listo para confirmar los cambios")
         return ("*Tu pedido esta pendiente.*\n\n"
-                "Escribe cancelar para cancelarlo antes de que sea procesado.")
+                "Escribe ajustar para modificarlo o cancelar para cancelarlo.")
+
+    # ── AJUSTANDO ──
+    if s == "ajustando":
+        if re.search(r"\blisto\b", msg):
+            items = estado["items"]
+            total = sum(i["precio"] for i in items)
+            _ordenes_pendientes[numero_cliente] = {
+                "codigo": codigo, "items": list(items), "total": total,
+                "direccion": estado["direccion"], "referencia": estado["referencia"],
+            }
+            _guardar_pedido(codigo, numero_cliente)
+            estado["estado"] = "pedido_enviado"
+
+            txt  = f"PEDIDO AJUSTADO de {numero_cliente}\n\n"
+            txt += "\n".join(_fmt(i) for i in items)
+            txt += f"\n\nTotal: ${total:.0f} pesos"
+            txt += f"\nDireccion: {estado['direccion']}"
+            txt += f"\nReferencia: {estado['referencia']}"
+            twilio_send(negocio["numero_negocio"], txt)
+
+            return _resumen(items, "\n\nPedido actualizado y reenviado al negocio.")
+
+        m = re.match(r"quitar\s+(.+)", msg)
+        if m:
+            buscado = m.group(1).strip()
+            antes = len(estado["items"])
+            estado["items"] = [i for i in estado["items"] if buscado not in _norm(i["nombre"])]
+            if len(estado["items"]) == antes:
+                return f"No encontre '{buscado}' en tu pedido."
+            if not estado["items"]:
+                return "Eliminaste todos los productos. Agrega algo o escribe cancelar."
+            return _resumen(estado["items"], "\nSigue ajustando o escribe listo para confirmar.")
+
+        resultados = _parsear_productos(mensaje, negocio.get("catalogo", {}))
+        if resultados:
+            for clave, prod, cantidad, texto in resultados:
+                estado["items"].append({
+                    "clave": clave, "nombre": prod["nombre"],
+                    "cantidad": cantidad, "texto": texto,
+                    "unidad": prod["unidad"], "precio": prod["precio"] * cantidad,
+                })
+            return _resumen(estado["items"], "\nSigue ajustando o escribe listo para confirmar.")
+
+        return ("No entendi. Escribe quitar [producto], agrega un producto, o listo para confirmar.")
 
     return None
 
