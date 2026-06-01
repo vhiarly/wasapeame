@@ -7,7 +7,7 @@ from twilio.rest import Client
 from dotenv import load_dotenv
 from negocio_router import detectar_codigo, obtener_negocio
 from flujo_pedidos import manejar_pedido, manejar_negocio, tiene_flujo_activo, es_numero_negocio, limpiar_flujo
-from flujo_citas import manejar_cita, manejar_negocio_citas, tiene_flujo_citas, tiene_sesion_admin_citas
+from flujo_citas import manejar_cita, manejar_negocio_citas, tiene_flujo_citas, tiene_sesion_admin_citas, iniciar_recordatorios
 from asistente_ia import consultar_ia, respuesta_ayuda
 
 load_dotenv()
@@ -28,6 +28,11 @@ TWILIO_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
 
 client = Client(ACCOUNT_SID, AUTH_TOKEN)
 
+
+def twilio_send(to, body):
+    client.messages.create(body=body, from_=TWILIO_NUMBER, to=to)
+
+
 timers           = {}
 _clientes_vistos = set()
 
@@ -36,7 +41,8 @@ TIMEOUT_SEGUNDOS = 300
 _PATRONES_NEGOCIO = {
     "pedidos": [r"^no\s+hay\b", r"\blisto\b"],
     "citas":   [r"mis\s+citas\s+(hoy|semana)", r"ocupado\s+hasta\b",
-                r"\bno\s+disponible\b", r"\blibre\s+\w+"],
+                r"\bno\s+disponible\b", r"\blibre\s+\w+",
+                r"^cancelar\s+cita\b", r"^cancelar\s+\d{4}"],
     "comun":   [r"^ayuda$", r"^admin\s+"],
 }
 
@@ -76,6 +82,9 @@ def reiniciar_timer(numero_cliente):
     timers[numero_cliente] = timer
 
 
+iniciar_recordatorios(twilio_send)
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     numero_cliente = request.form.get("From")
@@ -87,8 +96,6 @@ def webhook():
 
     resp = MessagingResponse()
     msg  = resp.message()
-
-    twilio_send = lambda to, body: client.messages.create(body=body, from_=TWILIO_NUMBER, to=to)
 
     # ── MENSAJES DE NEGOCIOS DEL ROUTER ──
     codigo_emisor = es_numero_negocio(numero_cliente)

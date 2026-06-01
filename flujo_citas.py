@@ -1,5 +1,7 @@
 import json
 import re
+import threading
+import time
 from datetime import datetime, timedelta, date
 from negocio_router import cargar_negocios, obtener_negocio
 
@@ -180,6 +182,51 @@ def tiene_sesion_admin_citas(numero):
     return bool(s and datetime.now() < s["expira"])
 
 
+# ── Recordatorios ────────────────────────────────────────────────────────────
+
+def _verificar_recordatorios(twilio_send):
+    now   = datetime.now()
+    datos = cargar_negocios()
+    modificado = False
+    for codigo, neg in datos["negocios"].items():
+        if neg.get("modo") != "citas":
+            continue
+        for cita in neg.get("citas", []):
+            if cita.get("estado") == "cancelada":
+                continue
+            if cita.get("recordatorio_enviado"):
+                continue
+            if not cita.get("agendado_en"):
+                continue
+            cita_dt    = datetime.strptime(f"{cita['fecha']} {cita['hora']}", "%Y-%m-%d %H:%M")
+            if cita_dt <= now:
+                continue
+            booking_dt = datetime.fromisoformat(cita["agendado_en"])
+            horas_hasta = (cita_dt - booking_dt).total_seconds() / 3600
+            reminder_dt = (cita_dt - timedelta(hours=3)) if horas_hasta <= 24 else (booking_dt + timedelta(hours=23))
+            if now >= reminder_dt:
+                twilio_send(
+                    cita["numero_cliente"],
+                    f"Recordatorio: tu cita de {cita['nombre_servicio']} en {neg['nombre']} "
+                    f"es hoy a las {_fmt12(cita['hora'])}."
+                )
+                cita["recordatorio_enviado"] = True
+                modificado = True
+    if modificado:
+        _guardar(datos)
+
+
+def iniciar_recordatorios(twilio_send):
+    def _loop():
+        while True:
+            try:
+                _verificar_recordatorios(twilio_send)
+            except Exception as e:
+                print(f"[RECORDATORIOS] Error: {e}")
+            time.sleep(60)
+    threading.Thread(target=_loop, daemon=True).start()
+
+
 # ── Flujo cliente ─────────────────────────────────────────────────────────────
 
 def tiene_flujo_citas(numero_cliente):
@@ -315,12 +362,15 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send):
 
         serv  = estado["servicio"]
         cita  = {
-            "numero_cliente":   numero_cliente,
-            "servicio":         estado["servicio_clave"],
-            "nombre_servicio":  serv["nombre"],
-            "fecha":            estado["dia"],
-            "hora":             estado["hora"],
-            "duracion_minutos": serv["duracion_minutos"],
+            "numero_cliente":       numero_cliente,
+            "servicio":             estado["servicio_clave"],
+            "nombre_servicio":      serv["nombre"],
+            "fecha":                estado["dia"],
+            "hora":                 estado["hora"],
+            "duracion_minutos":     serv["duracion_minutos"],
+            "agendado_en":          datetime.now().isoformat(timespec="seconds"),
+            "recordatorio_enviado": False,
+            "estado":               "activa",
         }
         datos = cargar_negocios()
         datos["negocios"][codigo]["citas"].append(cita)
@@ -453,5 +503,51 @@ def manejar_negocio_citas(numero, mensaje, twilio_send):
         )
         _guardar(datos)
         return f"{nombre_dia.capitalize()} {fecha_bloqueo} bloqueado completamente."
+
+    # ── cancelar cita [numero_cliente] ──
+    m_num = re.match(r"cancelar\s+cita\s+(\S+)", msg_low)
+    # ── cancelar [fecha] [hora] ──
+    m_fh  = re.match(r"cancelar\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})", msg_low)
+
+    if m_num or m_fh:
+        datos  = cargar_negocios()
+        citas  = datos["negocios"][codigo].get("citas", [])
+        target = None
+
+        if m_num:
+            buscado = m_num.group(1)
+            if not buscado.startswith("whatsapp:"):
+                buscado = f"whatsapp:{buscado}"
+            candidatas = [
+                c for c in citas
+                if c["numero_cliente"] == buscado
+                and c.get("estado", "activa") == "activa"
+                and c["fecha"] >= date.today().isoformat()
+            ]
+            if candidatas:
+                target = min(candidatas, key=lambda c: (c["fecha"], c["hora"]))
+        else:
+            fecha_b = m_fh.group(1)
+            hora_b  = f"{int(m_fh.group(2).split(':')[0]):02d}:{m_fh.group(2).split(':')[1]}"
+            for c in citas:
+                if c["fecha"] == fecha_b and c["hora"] == hora_b and c.get("estado", "activa") == "activa":
+                    target = c
+                    break
+
+        if not target:
+            return "No encontre una cita activa con esos datos."
+
+        target["estado"] = "cancelada"
+        _guardar(datos)
+
+        cita_dt = datetime.strptime(f"{target['fecha']} {target['hora']}", "%Y-%m-%d %H:%M")
+        if cita_dt > datetime.now():
+            twilio_send(
+                target["numero_cliente"],
+                f"Tu cita de {target['nombre_servicio']} en {negocio['nombre']} "
+                f"el {target['fecha']} a las {_fmt12(target['hora'])} fue cancelada.\n\n"
+                f"Escribe {codigo} si quieres agendar una nueva cita."
+            )
+        return f"Cita de {target['numero_cliente']} cancelada."
 
     return None
