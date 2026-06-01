@@ -41,6 +41,7 @@ cola_rebanado    = {}
 timers           = {}
 contador_turnos  = 0
 cola_pedidos     = []  # [{numero_cliente, turno, items, direccion, referencia, total}]
+_clientes_vistos = set()
 
 # Palabras para cancelar toda la orden
 PALABRAS_CANCELAR = [
@@ -348,6 +349,17 @@ def webhook():
             respuesta = manejar_pedido(numero_cliente, codigo, msg_flujo, twilio_send)
         if respuesta:
             msg.body(respuesta)
+        return str(resp)
+
+    if numero_cliente not in _clientes_vistos:
+        _clientes_vistos.add(numero_cliente)
+        msg.body(
+            "Bienvenido a *Wasapeame!* 🌿\n\n"
+            "Somos la plataforma de WhatsApp para negocios locales — pedidos, citas y más.\n\n"
+            "Para continuar, escribe el *código del negocio* al inicio de tu mensaje.\n\n"
+            "Ejemplo: escribe *CO1 hola* para conectarte con un negocio.\n\n"
+            "Si no tienes el código, pídelo directamente al negocio."
+        )
         return str(resp)
 
     if numero_cliente not in ordenes_activas:
