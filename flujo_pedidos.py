@@ -91,6 +91,15 @@ def tiene_flujo_activo(numero_cliente):
     return numero_cliente in _estados
 
 
+def limpiar_flujo(numero_cliente):
+    estado = _estados.get(numero_cliente, {})
+    codigo = estado.get("codigo")
+    if codigo:
+        _eliminar_pedido(codigo, numero_cliente)
+    _estados.pop(numero_cliente, None)
+    _ordenes_pendientes.pop(numero_cliente, None)
+
+
 def es_numero_negocio(numero):
     """Retorna el codigo si el numero pertenece a un negocio registrado, o None."""
     datos = cargar_negocios()

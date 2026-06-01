@@ -12,7 +12,7 @@ from inventario import (buscar_producto, parsear_linea_multiple,
                         verificar_disponibilidad, reducir_inventario,
                         productos, buscar_por_alias, normalizar_texto)
 from negocio_router import detectar_codigo, obtener_negocio
-from flujo_pedidos import manejar_pedido, manejar_negocio, tiene_flujo_activo, es_numero_negocio
+from flujo_pedidos import manejar_pedido, manejar_negocio, tiene_flujo_activo, es_numero_negocio, limpiar_flujo
 from flujo_citas import manejar_cita, manejar_negocio_citas, tiene_flujo_citas, tiene_sesion_admin_citas
 from asistente_ia import consultar_ia, respuesta_ayuda
 
@@ -117,6 +117,30 @@ def detener_timer(numero_cliente):
     if numero_cliente in timers:
         timers[numero_cliente].cancel()
         del timers[numero_cliente]
+
+
+def cancelar_por_timeout_nuevo(numero_cliente):
+    limpiar_flujo(numero_cliente)
+    try:
+        client.messages.create(
+            body=(
+                "Tu conversación expiró por inactividad.\n\n"
+                "Escribe el código del negocio cuando quieras continuar."
+            ),
+            from_=TWILIO_NUMBER,
+            to=numero_cliente
+        )
+    except Exception:
+        pass
+
+
+def reiniciar_timer_nuevo(numero_cliente):
+    if numero_cliente in timers:
+        timers[numero_cliente].cancel()
+    timer = threading.Timer(TIMEOUT_SEGUNDOS, cancelar_por_timeout_nuevo, args=[numero_cliente])
+    timer.daemon = True
+    timer.start()
+    timers[numero_cliente] = timer
 
 
 def formato_item(item):
@@ -347,6 +371,10 @@ def webhook():
             respuesta = manejar_cita(numero_cliente, codigo, msg_flujo, twilio_send)
         else:
             respuesta = manejar_pedido(numero_cliente, codigo, msg_flujo, twilio_send)
+            if tiene_flujo_activo(numero_cliente):
+                reiniciar_timer_nuevo(numero_cliente)
+            else:
+                detener_timer(numero_cliente)
         if respuesta:
             msg.body(respuesta)
         return str(resp)
