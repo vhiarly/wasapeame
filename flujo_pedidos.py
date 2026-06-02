@@ -950,7 +950,7 @@ def manejar_negocio(numero_negocio, codigo_negocio, mensaje, twilio_send):
         siguiente = cola_actual[0]
         pedido_sig = _get_pedido(siguiente)
         _enviar_pedido_a_negocio(numero_negocio, siguiente, pedido_sig, twilio_send, prefijo="SIGUIENTE PEDIDO")
-        twilio_send(siguiente, "🛵 Tu pedido está siendo preparado")
+        twilio_send(siguiente, "⏳ Tu pedido está siendo preparado")
         _notificar_posiciones(codigo_negocio, twilio_send)
 
         puesto_sig = pedido_sig.get("turno", "?") if pedido_sig else "?"
