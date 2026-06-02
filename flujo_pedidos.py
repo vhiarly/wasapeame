@@ -308,11 +308,20 @@ def _parsear_productos(mensaje, catalogo):
 
 
 def _productos_por_numero(msg, catalogo):
-    if not re.match(r'^\d+(?:[,\s]+\d+)*$', msg.strip()):
+    clean = msg.strip()
+    if not re.match(r'^\d+(?:[,\s]+\d+)*$', clean):
         return None
-    nums = [int(n) for n in re.split(r'[,\s]+', msg.strip()) if n]
     activos = [(k, p) for k, p in catalogo.items()
                if p.get("activo", True) and p.get("cantidad", 1) > 0]
+    if re.search(r'[,\s]', clean):
+        nums = [int(n) for n in re.split(r'[,\s]+', clean) if n]
+    else:
+        # Dígitos sin separador: si el número entero está fuera de rango, partir
+        # cada carácter como posición individual (ej: "123" → [1,2,3])
+        single = int(clean)
+        if 1 <= single <= len(activos):
+            return None  # lo maneja _seleccion_numerica
+        nums = [int(c) for c in clean]
     result = []
     for n in nums:
         if 1 <= n <= len(activos):
