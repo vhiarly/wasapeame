@@ -6,7 +6,7 @@ from negocio_router import obtener_negocio
 
 _CONFIRMAR = {"confirmar", "confirma", "si", "sí", "dale", "ok", "okay", "listo", "va", "adelante", "procede"}
 _CANCELAR  = {"cancelar", "cancel", "salir", "exit", "bye", "chao", "nada", "olvida", "adios", "adiós",
-              "nop", "no quiero", "paso"}
+              "nop", "no quiero", "paso", "0"}
 
 _CONSULTA_PATTERNS = [r"\bhay\b", r"\bahi\b", r"\bay\b", r"\btienen\b", r"\btienes\b"]
 
@@ -318,7 +318,7 @@ def _menu(negocio):
     for idx, (clave, prod) in enumerate(_catalogo_activo(negocio.get("catalogo", {})), 1):
         suf = "/libra" if prod["unidad"] == "libra" else ""
         lineas.append(f"{idx}. {prod['nombre']} - ${prod['precio']} pesos{suf}")
-    lineas += ["", "Escribe el *número* del producto o su nombre.", "Escribe *cancelar* para salir."]
+    lineas += ["", "Escribe el *número* del producto o su nombre.", "0. Cancelar"]
     return "\n".join(lineas)
 
 
@@ -422,12 +422,18 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send):
         if not msg or any(p in msg for p in ["hola", "buenas", "menu", "menú", "que tienen", "que hay"]):
             return _menu(negocio)
 
+        # "1" con items = confirmar (tiene prioridad sobre selección de producto 1)
+        if msg == "1" and items:
+            estado["estado"] = "esperando_confirmacion"
+            _set_estado(numero_cliente, estado)
+            return _resumen(items, "\n1. Confirmar pedido\n0. Cancelar")
+
         if any(re.search(r"\b" + p + r"\b", msg) for p in _CONFIRMAR):
             if not items:
                 return "No tienes productos en tu orden. Escribe *menú* para ver lo que tenemos."
             estado["estado"] = "esperando_confirmacion"
             _set_estado(numero_cliente, estado)
-            return _resumen(items, "\n1. Confirmar pedido\n2. Cancelar")
+            return _resumen(items, "\n1. Confirmar pedido\n0. Cancelar")
 
         # Selección numérica del menú
         clave_sel, prod_sel = _seleccion_numerica(msg, negocio.get("catalogo", {}))
@@ -463,7 +469,7 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send):
             items.append(item)
             estado["items"] = items
             _set_estado(numero_cliente, estado)
-            return _resumen(items, "\nEscribe otro producto, o *sí* para confirmar.")
+            return _resumen(items, "\nAgrega otro producto por número, o:\n1. Confirmar pedido\n0. Cancelar")
 
         # Pre-check monto vs. cantidad para productos por libra
         aclaracion = _detectar_aclaracion_necesaria(mensaje, negocio.get("catalogo", {}))
@@ -489,7 +495,7 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send):
                 items.append(item)
                 estado["items"] = items
                 _set_estado(numero_cliente, estado)
-                return _resumen(items, "\nEscribe otro producto, o *sí* para confirmar.")
+                return _resumen(items, "\nAgrega otro producto por número, o:\n1. Confirmar pedido\n0. Cancelar")
             else:  # ambiguo
                 estado["item_pendiente_rebanado"] = aclaracion
                 estado["estado"] = "esperando_aclaracion_unidad"
@@ -545,7 +551,7 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send):
 
         estado["items"] = items
         _set_estado(numero_cliente, estado)
-        respuesta = _resumen(items, "\nEscribe otro producto, o *sí* para confirmar.")
+        respuesta = _resumen(items, "\nAgrega otro producto por número, o:\n1. Confirmar pedido\n0. Cancelar")
         if agotados:
             respuesta += f"\n\n(Nota: {', '.join(agotados)} está agotado y no se agregó.)"
         return respuesta
@@ -623,7 +629,7 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send):
         estado["item_pendiente_rebanado"] = None
         estado["estado"] = "pidiendo"
         _set_estado(numero_cliente, estado)
-        return _resumen(items, "\nEscribe otro producto, o *sí* para confirmar.")
+        return _resumen(items, "\nAgrega otro producto por número, o:\n1. Confirmar pedido\n0. Cancelar")
 
     # ── ESPERANDO ACLARACIÓN UNIDAD ──
     if s == "esperando_aclaracion_unidad":
@@ -669,7 +675,7 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send):
         estado["item_pendiente_rebanado"] = None
         estado["estado"] = "pidiendo"
         _set_estado(numero_cliente, estado)
-        return _resumen(items, "\nEscribe otro producto, o *sí* para confirmar.")
+        return _resumen(items, "\nAgrega otro producto por número, o:\n1. Confirmar pedido\n0. Cancelar")
 
     # ── ESPERANDO CONFIRMACION ──
     if s == "esperando_confirmacion":
@@ -782,7 +788,7 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send):
 
         if origen == "ajustando":
             return _resumen(items, "\nSigue ajustando o escribe *1* para confirmar cambios.")
-        return _resumen(items, "\nEscribe otro producto, o *sí* para confirmar.")
+        return _resumen(items, "\nAgrega otro producto por número, o:\n1. Confirmar pedido\n0. Cancelar")
 
     # ── ESPERANDO DECISION (producto no disponible) ──
     if s == "esperando_decision":
@@ -849,7 +855,7 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send):
             if not items:
                 estado["items"] = items
                 _set_estado(numero_cliente, estado)
-                return "Eliminaste todos los productos. Agrega algo o escribe *cancelar*."
+                return "Eliminaste todos los productos. Agrega algo o *0* para cancelar."
             estado["items"] = items
             _set_estado(numero_cliente, estado)
             return _resumen(items, "\nSigue ajustando o escribe *1* para confirmar cambios.")
