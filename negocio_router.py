@@ -1,5 +1,5 @@
 import re
-from db import execute
+from db import execute, get_conn_ctx
 
 def detectar_codigo(mensaje):
     """Retorna (codigo, resto_mensaje) si el mensaje empieza con un código válido, o (None, mensaje)."""
@@ -13,58 +13,67 @@ def detectar_codigo(mensaje):
     return None, mensaje
 
 def obtener_negocio(codigo):
-    """
-    Retorna dict con config completa del negocio (estática) o None.
-    Incluye catalogo, servicios y horario reconstruidos desde BD.
-    Los campos dinámicos (citas, bloqueos, pedidos_activos) se consultan
-    directamente en flujo_citas.py y flujo_pedidos.py.
-    """
-    neg = execute(
-        "SELECT codigo, nombre, tipo, modo, numero_negocio, pin, activo "
-        "FROM negocios WHERE codigo = %s",
-        (codigo.upper(),), fetch="one"
-    )
-    if not neg:
-        return None
+    codigo = codigo.upper()
+    with get_conn_ctx() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT codigo, nombre, tipo, modo, numero_negocio, pin, activo "
+                "FROM negocios WHERE codigo = %s",
+                (codigo,)
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cols = [d[0] for d in cur.description]
+            neg = dict(zip(cols, row))
 
-    catalogo = {}
-    for row in execute(
-        "SELECT clave, nombre, precio, unidad, rebanado, activo, cantidad "
-        "FROM catalogo WHERE codigo = %s",
-        (codigo,), fetch="all"
-    ) or []:
-        catalogo[row["clave"]] = {
-            "nombre":   row["nombre"],
-            "precio":   float(row["precio"]),
-            "unidad":   row["unidad"],
-            "rebanado": row["rebanado"],
-            "activo":   row["activo"],
-            "cantidad": row["cantidad"],
-        }
+            cur.execute(
+                "SELECT clave, nombre, precio, unidad, rebanado, activo, cantidad "
+                "FROM catalogo WHERE codigo = %s",
+                (codigo,)
+            )
+            cols = [d[0] for d in cur.description]
+            catalogo = {}
+            for r in cur.fetchall():
+                d = dict(zip(cols, r))
+                catalogo[d["clave"]] = {
+                    "nombre":   d["nombre"],
+                    "precio":   float(d["precio"]),
+                    "unidad":   d["unidad"],
+                    "rebanado": d["rebanado"],
+                    "activo":   d["activo"],
+                    "cantidad": d["cantidad"],
+                }
 
-    servicios = {}
-    for row in execute(
-        "SELECT clave, nombre, duracion_minutos, precio, activo "
-        "FROM servicios WHERE codigo = %s",
-        (codigo,), fetch="all"
-    ) or []:
-        servicios[row["clave"]] = {
-            "nombre":            row["nombre"],
-            "duracion_minutos":  row["duracion_minutos"],
-            "precio":            float(row["precio"]),
-            "activo":            row["activo"],
-        }
+            cur.execute(
+                "SELECT clave, nombre, duracion_minutos, precio, activo "
+                "FROM servicios WHERE codigo = %s",
+                (codigo,)
+            )
+            cols = [d[0] for d in cur.description]
+            servicios = {}
+            for r in cur.fetchall():
+                d = dict(zip(cols, r))
+                servicios[d["clave"]] = {
+                    "nombre":           d["nombre"],
+                    "duracion_minutos": d["duracion_minutos"],
+                    "precio":           float(d["precio"]),
+                    "activo":           d["activo"],
+                }
 
-    horario = {}
-    for row in execute(
-        "SELECT dia, trabaja, inicio, fin FROM horarios WHERE codigo = %s",
-        (codigo,), fetch="all"
-    ) or []:
-        horario[row["dia"]] = {
-            "trabaja": row["trabaja"],
-            "inicio":  row["inicio"],
-            "fin":     row["fin"],
-        }
+            cur.execute(
+                "SELECT dia, trabaja, inicio, fin FROM horarios WHERE codigo = %s",
+                (codigo,)
+            )
+            cols = [d[0] for d in cur.description]
+            horario = {}
+            for r in cur.fetchall():
+                d = dict(zip(cols, r))
+                horario[d["dia"]] = {
+                    "trabaja": d["trabaja"],
+                    "inicio":  d["inicio"],
+                    "fin":     d["fin"],
+                }
 
     neg["catalogo"] = catalogo
     neg["servicios"] = servicios

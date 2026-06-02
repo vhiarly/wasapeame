@@ -1,4 +1,5 @@
 import os
+from contextlib import contextmanager
 from psycopg2 import pool
 
 _pool = None
@@ -9,7 +10,10 @@ def init_pool():
         minconn=1,
         maxconn=10,
         dsn=os.getenv("DATABASE_URL"),
-        sslmode="require",
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=5,
     )
 
 def get_conn():
@@ -18,13 +22,19 @@ def get_conn():
 def put_conn(conn):
     _pool.putconn(conn)
 
+@contextmanager
+def get_conn_ctx():
+    conn = get_conn()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        put_conn(conn)
+
 def execute(sql, params=(), *, fetch=None):
-    """
-    Ejecuta SQL y retorna resultados según fetch:
-      None  → sin resultado
-      'one' → un dict o None
-      'all' → lista de dicts
-    """
     conn = get_conn()
     try:
         with conn.cursor() as cur:
