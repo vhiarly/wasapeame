@@ -17,7 +17,8 @@ def obtener_negocio(codigo):
     with get_conn_ctx() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT codigo, nombre, tipo, modo, numero_negocio, pin, activo "
+                "SELECT codigo, nombre, tipo, modo, numero_negocio, pin, activo, "
+                "requiere_comprobante, instrucciones_pago "
                 "FROM negocios WHERE codigo = %s",
                 (codigo,)
             )

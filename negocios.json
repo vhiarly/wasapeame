@@ -61,6 +61,8 @@
       "activo": true,
       "numero_negocio": "whatsapp:+18298789906",
       "pin": "1234",
+      "requiere_comprobante": false,
+      "instrucciones_pago": "",
       "catalogo": {
         "salami": {
           "nombre": "Salami",
@@ -195,6 +197,43 @@
           "duracion_minutos": 30
         }
       ]
+    },
+    "SE1": {
+      "nombre": "Sir'Legal",
+      "modo": "citas",
+      "tipo": "SE",
+      "activo": true,
+      "numero_negocio": "whatsapp:+18298192919",
+      "pin": "7391",
+      "servicios": {
+        "asesoria_presencial":           {"nombre": "Asesoría Presencial",                         "duracion_minutos": 60, "precio": 2500, "activo": true},
+        "asesoria_online":               {"nombre": "Asesoría Online",                             "duracion_minutos": 60, "precio": 2000, "activo": true},
+        "constitucion_empresa":          {"nombre": "Constitución de empresa",                     "duracion_minutos": 60, "precio": 0,    "activo": true},
+        "registro_empresa_extranjera":   {"nombre": "Registro de empresa extranjera",              "duracion_minutos": 60, "precio": 0,    "activo": true},
+        "renovacion_registro_mercantil": {"nombre": "Renovación de Registro Mercantil",            "duracion_minutos": 60, "precio": 0,    "activo": true},
+        "registro_marca":                {"nombre": "Registro de Marca / Logo / Lema",             "duracion_minutos": 60, "precio": 0,    "activo": true},
+        "registro_sanitario":            {"nombre": "Registro Sanitario / Habilitación Sanitaria", "duracion_minutos": 60, "precio": 0,    "activo": true},
+        "tramites_migratorios":          {"nombre": "Trámites migratorios (RT-3, RT-9)",           "duracion_minutos": 60, "precio": 0,    "activo": true},
+        "renovacion_residencia_rt9":     {"nombre": "Renovación de residencia RT-9",               "duracion_minutos": 60, "precio": 0,    "activo": true},
+        "cambio_categoria_migratoria":   {"nombre": "Cambio de categoría migratoria",              "duracion_minutos": 60, "precio": 0,    "activo": true},
+        "adhesion_pnv_menores":          {"nombre": "Adhesión PNV menores de edad",                "duracion_minutos": 60, "precio": 0,    "activo": true},
+        "renovacion_permiso_tt1":        {"nombre": "Renovación permiso TT-1",                     "duracion_minutos": 60, "precio": 0,    "activo": true},
+        "homologacion_licencia":         {"nombre": "Homologación de licencia extranjera",         "duracion_minutos": 60, "precio": 0,    "activo": true},
+        "licencia_venezolana":           {"nombre": "Licencia venezolana renovación y emisión",    "duracion_minutos": 60, "precio": 0,    "activo": true},
+        "visas_rd":                      {"nombre": "Visas RD turismo residencia laboral",         "duracion_minutos": 60, "precio": 0,    "activo": true},
+        "visa_turismo_venezuela":        {"nombre": "Visa turismo Venezuela",                      "duracion_minutos": 60, "precio": 0,    "activo": true}
+      },
+      "horario": {
+        "lunes":     {"trabaja": true,  "inicio": "09:00", "fin": "18:00"},
+        "martes":    {"trabaja": true,  "inicio": "09:00", "fin": "18:00"},
+        "miercoles": {"trabaja": true,  "inicio": "09:00", "fin": "18:00"},
+        "jueves":    {"trabaja": true,  "inicio": "09:00", "fin": "18:00"},
+        "viernes":   {"trabaja": true,  "inicio": "09:00", "fin": "18:00"},
+        "sabado":    {"trabaja": false, "inicio": null,    "fin": null},
+        "domingo":   {"trabaja": false, "inicio": null,    "fin": null}
+      },
+      "citas": [],
+      "bloqueos": []
     }
   }
 }

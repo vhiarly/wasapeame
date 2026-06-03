@@ -17,13 +17,15 @@ load_dotenv()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS negocios (
-    codigo          VARCHAR(10)  PRIMARY KEY,
-    nombre          VARCHAR(200) NOT NULL,
-    tipo            VARCHAR(10)  NOT NULL,
-    modo            VARCHAR(20)  NOT NULL CHECK (modo IN ('pedidos','citas')),
-    numero_negocio  VARCHAR(50)  NOT NULL UNIQUE,
-    pin             VARCHAR(50)  NOT NULL,
-    activo          BOOLEAN      NOT NULL DEFAULT TRUE
+    codigo                VARCHAR(10)  PRIMARY KEY,
+    nombre                VARCHAR(200) NOT NULL,
+    tipo                  VARCHAR(10)  NOT NULL,
+    modo                  VARCHAR(20)  NOT NULL CHECK (modo IN ('pedidos','citas')),
+    numero_negocio        VARCHAR(50)  NOT NULL UNIQUE,
+    pin                   VARCHAR(50)  NOT NULL,
+    activo                BOOLEAN      NOT NULL DEFAULT TRUE,
+    requiere_comprobante  BOOLEAN      NOT NULL DEFAULT FALSE,
+    instrucciones_pago    TEXT         NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS catalogo (
@@ -285,6 +287,15 @@ def migrate():
                 VALUES (%s, %s, %s)
                 ON CONFLICT (codigo, mes) DO NOTHING
             """, (codigo, ci["mes"], ci["count"]))
+
+    cur.execute("""
+        ALTER TABLE negocios
+          ADD COLUMN IF NOT EXISTS requiere_comprobante BOOLEAN NOT NULL DEFAULT FALSE
+    """)
+    cur.execute("""
+        ALTER TABLE negocios
+          ADD COLUMN IF NOT EXISTS instrucciones_pago TEXT NOT NULL DEFAULT ''
+    """)
 
     cur.execute("""
         ALTER TABLE contadores_turnos

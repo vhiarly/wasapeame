@@ -34,8 +34,11 @@ TWILIO_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
 client = Client(ACCOUNT_SID, AUTH_TOKEN)
 
 
-def twilio_send(to, body):
-    client.messages.create(body=body, from_=TWILIO_NUMBER, to=to)
+def twilio_send(to, body, media_url=None):
+    kwargs = dict(body=body, from_=TWILIO_NUMBER, to=to)
+    if media_url:
+        kwargs["media_url"] = [media_url]
+    client.messages.create(**kwargs)
 
 
 timers           = {}
@@ -96,6 +99,7 @@ def webhook():
     numero_cliente = request.form.get("From")
     mensaje        = request.form.get("Body", "").strip()
     mensaje_lower  = mensaje.lower().strip()
+    media_url      = request.form.get("MediaUrl0")
 
     print(f"[IN]  {numero_cliente}: {mensaje!r}")
     g.numero_cliente = numero_cliente
@@ -147,7 +151,7 @@ def webhook():
         if modo == "citas":
             respuesta = manejar_cita(numero_cliente, codigo, msg_flujo, twilio_send)
         else:
-            respuesta = manejar_pedido(numero_cliente, codigo, msg_flujo, twilio_send)
+            respuesta = manejar_pedido(numero_cliente, codigo, msg_flujo, twilio_send, media_url=media_url)
             if tiene_flujo_activo(numero_cliente):
                 reiniciar_timer(numero_cliente)
             else:

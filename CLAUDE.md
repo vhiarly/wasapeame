@@ -43,7 +43,7 @@ Every Twilio webhook hits `POST /webhook`. Routing priority, top to bottom:
 3. **Message starts with a business code** (`detectar_codigo`) OR **client has an open conversation** in DB → `manejar_pedido` or `manejar_cita` depending on `negocio.modo`.
 4. **No code, no active session** → welcome message (first time) or prompt to enter a code.
 
-After a pedidos response, the in-memory `threading.Timer` is reset to `TIMEOUT_SEGUNDOS` (180 s). On timeout, `cancelar_por_timeout` fires — **known bug: does not advance the queue** (see open issues below).
+After a pedidos response, the in-memory `threading.Timer` is reset to `TIMEOUT_SEGUNDOS` (180 s). On timeout, `cancelar_por_timeout` fires and delegates to `cancelar_timeout` in `flujo_pedidos.py`, which advances the queue correctly.
 
 ### Two conversation modes
 
@@ -93,14 +93,6 @@ In-memory `timers` dict of `threading.Timer` objects, keyed by `numero_cliente`.
 
 ---
 
-## Open Issues
-
-**Critical — timeout does not advance the queue**
-`cancelar_por_timeout` calls `limpiar_flujo` which deletes the pedido and conversation, but does not check if the client was first in queue. If they were, the next client is never notified and the business never gets "SIGUIENTE PEDIDO". Fix: replicate `_ejecutar_cancelacion` logic in `cancelar_por_timeout`, passing `twilio_send` via closure.
-
-**`ON CONFLICT DO NOTHING` in `_guardar_pedido` is dead code**
-`pedidos` has no unique constraint on `(numero_cliente, estado)`, only a serial PK. The clause never fires. Two parallel Twilio webhooks (Twilio retries on slow responses) can insert duplicate pending orders.
-
 ---
 
 ## Key Constraints
@@ -110,6 +102,49 @@ In-memory `timers` dict of `threading.Timer` objects, keyed by `numero_cliente`.
 - `inventario.py` is legacy dead code — not imported anywhere. `flujo_pedidos.py` carries its own inline `_ALIAS` dict.
 - Do not use async/await.
 - `negocios.json` is for initial seed only — never treat it as the source of truth for live data.
+
+---
+
+## Quick Reference
+
+```
+Repo:            github.com/vhiarly/wasapeame
+Deploy:          Azure App Service — resource group: wasapeame-rg, region: West Europe
+Twilio sender:   +849-256-9906    (número dominicano aprobado por Meta — TWILIO_WHATSAPP_NUMBER)
+Endpoint:        POST /webhook
+```
+
+---
+
+## Envío de mensajes salientes (Twilio / WhatsApp)
+
+Reglas aprendidas en producción — seguirlas siempre al escribir scripts de envío:
+
+**1. `from_` fijo:**
+```python
+from_ = "whatsapp:+18492659906"
+```
+
+**2. Límite de 1,600 caracteres por mensaje.** Fragmentar en partes con `time.sleep(2)` entre cada una.
+
+**3. Media (PDF, imagen) — usar Google Drive con URL de descarga directa:**
+```
+https://drive.google.com/uc?export=download&id=FILE_ID
+```
+Nunca el link del visor (`/file/d/FILE_ID/view`) — Twilio no puede descargar desde ahí.
+
+**4. Ventana de 24h de Meta.** El kit de bienvenida solo puede enviarse como respuesta inmediata cuando el cliente escribe por primera vez. Fuera de esa ventana, Twilio rechaza mensajes salientes que no sean templates aprobados.
+
+**5. Flujo estándar de onboarding:**
+```python
+msg1 = client.messages.create(body=parte1, from_=FROM, to=TO)   # datos del negocio
+time.sleep(2)
+msg2 = client.messages.create(body=parte2, from_=FROM, to=TO)   # comandos admin
+time.sleep(2)
+msg3 = client.messages.create(body="", media_url=[GDRIVE_URL], from_=FROM, to=TO)  # PDF
+```
+
+**Script de referencia:** `.claude/SESSION_2026-06-03.md`
 
 ---
 

@@ -425,7 +425,7 @@ def cancelar_timeout(numero_cliente, twilio_send):
         _del_estado(numero_cliente)
 
 
-def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send):
+def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
     msg = _norm(mensaje)
 
     estado = _get_estado(numero_cliente)
@@ -762,10 +762,6 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send):
         cola = _get_cola(codigo)
         posicion = len(cola)
 
-        if posicion == 1:
-            pedido = _get_pedido(numero_cliente)
-            _enviar_pedido_a_negocio(negocio["numero_negocio"], numero_cliente, pedido, twilio_send)
-
         antes = posicion - 1
         if antes == 0:
             pos_txt = f"✅ Pedido confirmado. Tu puesto es P-{puesto} — eres el primero!"
@@ -779,8 +775,42 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send):
         r += f"\n\nTotal: ${total:.0f} pesos"
         r += f"\nDireccion: {estado['direccion']}"
         r += f"\nReferencia: {estado['referencia']}"
+
+        if negocio.get("requiere_comprobante"):
+            instrucciones = negocio.get("instrucciones_pago", "")
+            estado["estado"] = "esperando_comprobante"
+            _set_estado(numero_cliente, estado)
+            r += f"\n\n💳 Para confirmar tu pago, realiza la transferencia:\n\n{instrucciones}"
+            r += "\n\nEnvía la foto del comprobante por aquí cuando hayas pagado."
+            return r
+
+        if posicion == 1:
+            pedido = _get_pedido(numero_cliente)
+            _enviar_pedido_a_negocio(negocio["numero_negocio"], numero_cliente, pedido, twilio_send)
+
         r += "\n\n1. Ajustar pedido\n2. Cancelar"
         return r
+
+    # ── ESPERANDO COMPROBANTE ──
+    if s == "esperando_comprobante":
+        if not media_url:
+            instrucciones = negocio.get("instrucciones_pago", "")
+            return (f"Aun no hemos recibido tu comprobante.\n\n"
+                    f"Realiza la transferencia a:\n\n{instrucciones}\n\n"
+                    f"Envia la foto del comprobante aqui.")
+
+        pedido = _get_pedido(numero_cliente)
+        puesto = pedido.get("turno", "?") if pedido else "?"
+        txt  = f"PAGO RECIBIDO — Puesto #P-{puesto} de {numero_cliente}\n\n"
+        txt += "\n".join(_fmt(i) for i in items)
+        txt += f"\n\nTotal: ${sum(i['precio'] for i in items):.0f} pesos"
+        txt += f"\nDireccion: {estado['direccion']}"
+        txt += f"\nReferencia: {estado['referencia']}"
+        twilio_send(negocio["numero_negocio"], txt, media_url=media_url)
+
+        estado["estado"] = "pedido_enviado"
+        _set_estado(numero_cliente, estado)
+        return "✅ Comprobante recibido. Tu pedido esta en preparacion.\n\n1. Ajustar pedido\n2. Cancelar"
 
     # ── PEDIDO ENVIADO ──
     if s == "pedido_enviado":
