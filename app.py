@@ -178,6 +178,15 @@ def webhook():
     return str(resp)
 
 
+@app.route("/googlee98445ec59f6ead6.html", methods=["GET"])
+def google_verification():
+    return make_response(
+        "google-site-verification: googlee98445ec59f6ead6.html",
+        200,
+        {"Content-Type": "text/html; charset=utf-8"},
+    )
+
+
 @app.route("/privacidad", methods=["GET"])
 def privacidad():
     html = """<!DOCTYPE html>
