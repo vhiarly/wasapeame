@@ -99,7 +99,6 @@ def get_auth_url(negocio_id: int) -> str:
         include_granted_scopes="true",
         prompt="consent",
         state=str(negocio_id),
-        code_challenge_method=None,  # deshabilita PKCE — el callback crea un Flow nuevo sin verifier
     )
     return auth_url
 
