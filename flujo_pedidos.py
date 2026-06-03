@@ -409,6 +409,20 @@ def limpiar_flujo(numero_cliente):
     _del_estado(numero_cliente)
 
 
+def cancelar_timeout(numero_cliente, twilio_send):
+    estado = _get_estado(numero_cliente)
+    if not estado:
+        return
+    codigo = estado["codigo"]
+    negocio = obtener_negocio(codigo)
+    if negocio:
+        _ejecutar_cancelacion(numero_cliente, codigo, negocio, twilio_send,
+                              notificar_negocio=True)
+    else:
+        _eliminar_pedido(numero_cliente)
+        _del_estado(numero_cliente)
+
+
 def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send):
     msg = _norm(mensaje)
 

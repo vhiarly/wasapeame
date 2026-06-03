@@ -7,7 +7,7 @@ from twilio.rest import Client
 from dotenv import load_dotenv
 from db import init_pool, execute
 from negocio_router import detectar_codigo, obtener_negocio, es_numero_negocio
-from flujo_pedidos import manejar_pedido, manejar_negocio, tiene_flujo_activo, limpiar_flujo
+from flujo_pedidos import manejar_pedido, manejar_negocio, tiene_flujo_activo, limpiar_flujo, cancelar_timeout
 from flujo_citas import manejar_cita, manejar_negocio_citas, tiene_flujo_citas, tiene_sesion_admin_citas, iniciar_recordatorios
 from asistente_ia import consultar_ia, respuesta_ayuda
 
@@ -64,7 +64,7 @@ def detener_timer(numero_cliente):
 
 
 def cancelar_por_timeout(numero_cliente):
-    limpiar_flujo(numero_cliente)
+    cancelar_timeout(numero_cliente, twilio_send)
     timers.pop(numero_cliente, None)
     try:
         client.messages.create(
