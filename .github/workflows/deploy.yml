@@ -28,6 +28,3 @@ jobs:
         with:
           app-name: wasapeame
           resource-group-name: wasapeame-rg
-
-      - name: Restart app
-        run: az webapp restart --name wasapeame --resource-group wasapeame-rg
