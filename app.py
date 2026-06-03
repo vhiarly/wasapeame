@@ -1,7 +1,7 @@
 import os
 import re
 import threading
-from flask import Flask, request, g, make_response
+from flask import Flask, request, g, make_response, render_template
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client
 from dotenv import load_dotenv
@@ -180,6 +180,18 @@ def webhook():
 
     msg.body("Escribe el *código del negocio* para continuar. Si no lo tienes, pídelo al negocio.")
     return str(resp)
+
+
+@app.route("/privacy")
+@app.route("/privacy.html")
+def privacy():
+    return render_template("privacy.html")
+
+
+@app.route("/terms")
+@app.route("/terms.html")
+def terms():
+    return render_template("terms.html")
 
 
 @app.route("/googlee98445ec59f6ead6.html", methods=["GET"])
