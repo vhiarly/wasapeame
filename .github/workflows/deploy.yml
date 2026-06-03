@@ -1,0 +1,33 @@
+name: Deploy a Azure
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Login a Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy a Azure Web App (Zip Deploy)
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: wasapeame
+          resource-group-name: wasapeame-rg
+
+      - name: Restart app
+        run: az webapp restart --name wasapeame --resource-group wasapeame-rg
