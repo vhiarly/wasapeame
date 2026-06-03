@@ -19,7 +19,11 @@ init_pool()
 execute("DELETE FROM conversaciones_pedidos WHERE timeout_en < NOW()")
 
 app = Flask(__name__)
-app.register_blueprint(oauth_bp)
+app.register_blueprint(oauth_bp, url_prefix='/oauth')
+
+@app.route("/ping")
+def ping():
+    return "¡El servidor está vivo!", 200
 
 
 @app.after_request
