@@ -653,11 +653,81 @@ def _verificar_recordatorios(twilio_send):
             )
             execute("UPDATE citas SET recordatorio_enviado = TRUE WHERE id = %s", (cita["id"],))
 
+def _refresh_google_tokens():
+    """Refresca tokens de Google Calendar que expiran en menos de 10 minutos."""
+    import os, requests as _req
+    filas = execute(
+        "SELECT codigo, google_refresh_token FROM negocios "
+        "WHERE google_refresh_token IS NOT NULL AND google_token_expires < NOW() + INTERVAL '10 minutes'",
+        fetch="all"
+    ) or []
+    for fila in filas:
+        try:
+            resp = _req.post("https://oauth2.googleapis.com/token", data={
+                "client_id":     os.getenv("GOOGLE_CLIENT_ID"),
+                "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                "refresh_token": fila["google_refresh_token"],
+                "grant_type":    "refresh_token",
+            }, timeout=10)
+            resp.raise_for_status()
+            new_token = resp.json()["access_token"]
+            execute(
+                "UPDATE negocios SET google_access_token=%s, "
+                "google_token_expires=NOW() + INTERVAL '55 minutes' WHERE codigo=%s",
+                (new_token, fila["codigo"])
+            )
+            print(f"[Google] Token refrescado para {fila['codigo']}")
+        except Exception as e:
+            print(f"[Google] Error refrescando token {fila['codigo']}: {e}")
+
+
+def _escalar_noshow_sin_respuesta(twilio_send):
+    """Escala no-shows donde Pilar no respondió en 2 horas."""
+    relays = execute(
+        "SELECT * FROM sesiones_relay WHERE estado='activo' "
+        "AND creado_en < NOW() - INTERVAL '2 hours' AND respondio = FALSE",
+        fetch="all"
+    ) or []
+    for relay in relays:
+        try:
+            execute("DELETE FROM sesiones_relay WHERE numero_cliente=%s", (relay["numero_cliente"],))
+            twilio_send(relay["numero_negocio"],
+                f"⏱ El relay con {relay['numero_cliente']} cerró por inactividad (2h sin respuesta).")
+            conv = execute(
+                "SELECT 1 FROM conversaciones_citas WHERE numero_cliente=%s "
+                "AND estado='noshow_esperando_decision'",
+                (relay["numero_cliente"],), fetch="one"
+            )
+            if conv:
+                pass  # cliente ya tiene opciones
+            else:
+                execute("""
+                    INSERT INTO conversaciones_citas (numero_cliente, codigo, estado)
+                    VALUES (%s, %s, 'noshow_esperando_decision')
+                    ON CONFLICT (numero_cliente) DO UPDATE SET
+                        codigo=EXCLUDED.codigo, estado='noshow_esperando_decision'
+                """, (relay["numero_cliente"], relay["codigo"]))
+            twilio_send(
+                relay["numero_cliente"],
+                f"No hemos podido contactar al negocio en 2 horas.\n\n"
+                f"¿Qué prefieres hacer?\n\n"
+                f"1. Mantener la cita como esta\n"
+                f"2. Reagendar\n"
+                f"3. Cancelar y solicitar reembolso\n\n"
+                f"wasapeame.co/descargo"
+            )
+            print(f"[No-show] Escalado: {relay['numero_cliente']}")
+        except Exception as e:
+            print(f"[No-show] Error escalando: {e}")
+
+
 def iniciar_recordatorios(twilio_send):
     def _loop():
         while True:
             try:
                 _verificar_recordatorios(twilio_send)
+                _refresh_google_tokens()
+                _escalar_noshow_sin_respuesta(twilio_send)
             except Exception as e:
                 print(f"[RECORDATORIOS] Error: {e}")
             time.sleep(60)
