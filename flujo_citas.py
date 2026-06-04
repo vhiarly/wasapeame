@@ -192,6 +192,181 @@ def _del_estado_cita(numero_cliente):
     execute("DELETE FROM conversaciones_citas WHERE numero_cliente = %s", (numero_cliente,))
 
 
+# ── Helpers de relay ──────────────────────────────────────────────────────────
+
+def _get_relay(numero_cliente):
+    return execute(
+        "SELECT * FROM sesiones_relay WHERE numero_cliente = %s",
+        (numero_cliente,), fetch="one"
+    )
+
+def _get_relay_por_negocio(numero_negocio):
+    return execute(
+        "SELECT * FROM sesiones_relay WHERE numero_negocio = %s AND estado IN ('activo','cerrando')",
+        (numero_negocio,), fetch="all"
+    ) or []
+
+def _abrir_relay(numero_cliente, numero_negocio, codigo):
+    execute("""
+        INSERT INTO sesiones_relay (numero_cliente, numero_negocio, codigo, estado)
+        VALUES (%s, %s, %s, 'activo')
+        ON CONFLICT (numero_cliente) DO UPDATE SET
+            numero_negocio = EXCLUDED.numero_negocio,
+            codigo         = EXCLUDED.codigo,
+            estado         = 'activo',
+            respondio      = FALSE,
+            creado_en      = NOW()
+    """, (numero_cliente, numero_negocio, codigo))
+
+def _actualizar_relay(numero_cliente, **kwargs):
+    sets = ", ".join(f"{k} = %s" for k in kwargs)
+    vals = list(kwargs.values()) + [numero_cliente]
+    execute(f"UPDATE sesiones_relay SET {sets} WHERE numero_cliente = %s", vals)
+
+def _cerrar_relay(numero_cliente):
+    execute("DELETE FROM sesiones_relay WHERE numero_cliente = %s", (numero_cliente,))
+
+
+def cerrar_relay_timeout(numero_cliente, twilio_send):
+    """Llamada por el timer de 30 min cuando el relay expira."""
+    relay = _get_relay(numero_cliente)
+    if not relay:
+        return
+    negocio = obtener_negocio(relay["codigo"])
+    _cerrar_relay(numero_cliente)
+
+    # Notificar a Pilar
+    twilio_send(
+        relay["numero_negocio"],
+        f"⏱ Sesión de chat con {numero_cliente} cerrada por tiempo. El cliente fue notificado."
+    )
+
+    # Opciones al cliente
+    conv = execute(
+        "SELECT * FROM conversaciones_citas WHERE numero_cliente = %s AND estado = 'esperando_confirmacion_negocio'",
+        (numero_cliente,), fetch="one"
+    )
+    if conv:
+        execute(
+            "UPDATE conversaciones_citas SET estado = 'esperando_resolucion_cliente' WHERE numero_cliente = %s",
+            (numero_cliente,)
+        )
+    twilio_send(
+        numero_cliente,
+        "No pudimos completar la coordinacion en el tiempo disponible.\n\n"
+        "¿Qué prefieres hacer con tu cita?\n\n"
+        "1. Mantener la cita como esta\n"
+        "2. Reagendar (ver nuevas opciones)\n"
+        "3. Cancelar y solicitar reembolso"
+    )
+
+
+def manejar_relay_mensaje(numero, mensaje, media_url, twilio_send,
+                           iniciar_timer_relay, cancelar_timer_relay):
+    """
+    Intercepta mensajes que pertenecen a una sesión relay activa.
+    Retorna texto de respuesta, "" para no responder, o None si no aplica relay.
+    """
+    msg_low = mensaje.lower().strip()
+
+    # ── Caso 1: El mensaje viene del CLIENTE en relay ──
+    relay = _get_relay(numero)
+    if relay and relay["estado"] == "activo":
+        negocio = obtener_negocio(relay["codigo"])
+        if not relay["respondio"]:
+            _actualizar_relay(numero, respondio=True)
+
+        # Cliente elige "más tarde"
+        if re.search(r"\bm[aá]s\s+tarde\b", msg_low):
+            cancelar_timer_relay(numero)
+            _cerrar_relay(numero)
+            twilio_send(relay["numero_negocio"],
+                f"El cliente ({numero}) no puede hablar ahora. Sesión cerrada.")
+            execute(
+                "UPDATE conversaciones_citas SET estado = 'esperando_resolucion_cliente' WHERE numero_cliente = %s",
+                (numero,)
+            )
+            return (
+                "Entendido. ¿Qué prefieres hacer con tu cita?\n\n"
+                "1. Mantener la cita como esta\n"
+                "2. Reagendar (ver nuevas opciones)\n"
+                "3. Cancelar y solicitar reembolso"
+            )
+
+        # Reenviar mensaje del cliente a Pilar
+        twilio_send(relay["numero_negocio"],
+            f"Cliente: {mensaje}", media_url=media_url)
+        return ""  # no responder al cliente
+
+    # ── Caso 1b: Cliente en esperando_resolucion_cliente ──
+    conv = execute(
+        "SELECT * FROM conversaciones_citas WHERE numero_cliente = %s AND estado = 'esperando_resolucion_cliente'",
+        (numero,), fetch="one"
+    )
+    if conv:
+        negocio = obtener_negocio(conv["codigo"])
+        if mensaje.strip() == "1":
+            execute("UPDATE conversaciones_citas SET estado = 'esperando_confirmacion_negocio' WHERE numero_cliente = %s", (numero,))
+            twilio_send(negocio["numero_negocio"],
+                f"El cliente ({numero}) decidio mantener la cita.")
+            return "Tu cita sigue en pie. Te confirmaremos el pago pronto."
+        if mensaje.strip() == "2":
+            _del_estado_cita(numero)
+            twilio_send(negocio["numero_negocio"],
+                f"El cliente ({numero}) quiere reagendar.")
+            return "Para reagendar escribe el codigo del negocio y pasamos por el flujo de nuevo."
+        if mensaje.strip() == "3":
+            execute("UPDATE conversaciones_citas SET estado = 'esperando_datos_reembolso' WHERE numero_cliente = %s", (numero,))
+            twilio_send(negocio["numero_negocio"],
+                f"El cliente ({numero}) solicita reembolso.")
+            return (
+                "Entendido. Para procesar tu reembolso necesito tus datos bancarios.\n\n"
+                "Escribe en este formato:\n"
+                "*Banco:* [nombre del banco]\n"
+                "*Cuenta:* [numero de cuenta]\n"
+                "*Titular:* [tu nombre completo]"
+            )
+        return "Escribe *1* para mantener, *2* para reagendar o *3* para cancelar y reembolso."
+
+    # ── Caso 1c: Cliente dando datos de reembolso ──
+    conv_r = execute(
+        "SELECT * FROM conversaciones_citas WHERE numero_cliente = %s AND estado = 'esperando_datos_reembolso'",
+        (numero,), fetch="one"
+    )
+    if conv_r:
+        negocio = obtener_negocio(conv_r["codigo"])
+        servicio = negocio.get("servicios", {}).get(conv_r.get("servicio_clave"), {})
+        tipo_cita = conv_r.get("tipo")
+        monto = negocio.get("costo_online") if tipo_cita == "online" else negocio.get("costo_presencial")
+        twilio_send(
+            negocio["numero_negocio"],
+            f"💸 REEMBOLSO SOLICITADO\n\n"
+            f"Cliente:  {numero}\n"
+            f"Servicio: {servicio.get('nombre','')}\n"
+            f"Monto:    ${monto:,} DOP\n\n"
+            f"Datos bancarios del cliente:\n{mensaje}\n\n"
+            f"Realiza la transferencia manualmente y envia el comprobante con:\n"
+            f"comprobante reembolso {numero.replace('whatsapp:+','')}"
+        )
+        _del_estado_cita(numero)
+        return (
+            "✅ Tus datos fueron enviados a Sir'Legal.\n\n"
+            "El reembolso sera procesado en un plazo de *24-48 horas habiles*. "
+            "Recibirás el comprobante de la devolución por este chat."
+        )
+
+    # ── Caso 2: El mensaje viene del NEGOCIO en relay activo ──
+    relays_negocio = _get_relay_por_negocio(numero)
+    if relays_negocio:
+        # Buscar si es un reenvío (mensaje normal durante relay)
+        for r in relays_negocio:
+            if r["estado"] == "activo" and not re.match(r"cerrar\s+chat\s+\d+", msg_low):
+                twilio_send(r["numero_cliente"], mensaje, media_url=media_url)
+        return None  # Dejar que el flujo normal del negocio también procese sus comandos
+
+    return None  # No aplica relay
+
+
 # ── Helpers de sesiones admin ─────────────────────────────────────────────────
 
 def _get_sesion_admin(numero):
@@ -642,7 +817,8 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
 
 # ── Flujo negocio ─────────────────────────────────────────────────────────────
 
-def manejar_negocio_citas(numero, mensaje, twilio_send):
+def manejar_negocio_citas(numero, mensaje, twilio_send,
+                           iniciar_timer_relay=None, cancelar_timer_relay=None):
     msg     = mensaje.strip()
     msg_low = msg.lower()
 
@@ -670,6 +846,91 @@ def manejar_negocio_citas(numero, mensaje, twilio_send):
     codigo  = codigo_activo
     negocio = obtener_negocio(codigo)
     hoy     = date.today()
+
+    # ── chat [número] — abrir relay ──
+    m_chat = re.match(r"chat\s+(\d+)", msg_low)
+    if m_chat:
+        num_corto   = m_chat.group(1)
+        num_cliente = f"whatsapp:+{num_corto}"
+        _abrir_relay(num_cliente, numero, codigo)
+        if iniciar_timer_relay:
+            iniciar_timer_relay(num_cliente)
+        twilio_send(
+            num_cliente,
+            f"*{negocio['nombre']}* quiere coordinarse contigo sobre tu cita. "
+            f"Tienes *30 minutos* para responder.\n\n"
+            f"Si no puedes ahora escribe *mas tarde* y te enviaremos opciones."
+        )
+        return (
+            f"Sesion de chat con {num_corto} abierta. Tienes *30 minutos*.\n"
+            f"Escribe con normalidad — el cliente recibira tus mensajes.\n"
+            f"Cuando terminen escribe: *cerrar chat {num_corto}*"
+        )
+
+    # ── cerrar chat [número] — Pilar decide que pasó ──
+    m_cerrar = re.match(r"cerrar\s+chat\s+(\d+)", msg_low)
+    if m_cerrar:
+        num_corto   = m_cerrar.group(1)
+        num_cliente = f"whatsapp:+{num_corto}"
+        relay = _get_relay(num_cliente)
+        if not relay:
+            return f"No hay una sesion de chat activa con {num_corto}."
+        if cancelar_timer_relay:
+            cancelar_timer_relay(num_cliente)
+        _actualizar_relay(num_cliente, estado="cerrando")
+        return (
+            f"¿Que acordaron con {num_corto}?\n\n"
+            f"1. Confirmar la cita\n"
+            f"2. Cancelar + reembolso"
+        )
+
+    # ── respuesta de Pilar al cerrar chat (1 o 2) ──
+    relays_cerrando = [r for r in _get_relay_por_negocio(numero) if r["estado"] == "cerrando"]
+    if relays_cerrando and msg_low in ("1", "2"):
+        relay = relays_cerrando[0]
+        num_cliente = relay["numero_cliente"]
+        num_corto   = num_cliente.replace("whatsapp:+", "")
+        conv = execute(
+            "SELECT * FROM conversaciones_citas WHERE numero_cliente = %s",
+            (num_cliente,), fetch="one"
+        )
+        servicio_r = negocio.get("servicios", {}).get(conv["servicio_clave"]) if conv else None
+        _cerrar_relay(num_cliente)
+
+        if msg_low == "1":
+            if conv and servicio_r:
+                _procesar_confirmacion(codigo, num_cliente, conv, servicio_r, negocio, twilio_send)
+            _del_estado_cita(num_cliente)
+            twilio_send(num_cliente, _msg_confirmacion(conv, servicio_r or {}, negocio))
+            return f"✅ Cita de {num_corto} confirmada. El cliente fue notificado."
+        else:
+            execute(
+                "UPDATE conversaciones_citas SET estado = 'esperando_datos_reembolso' WHERE numero_cliente = %s",
+                (num_cliente,)
+            )
+            twilio_send(
+                num_cliente,
+                "Lo sentimos, no fue posible mantener tu cita.\n\n"
+                "Para procesar tu reembolso necesito tus datos bancarios.\n\n"
+                "Escribe en este formato:\n"
+                "*Banco:* [nombre del banco]\n"
+                "*Cuenta:* [numero de cuenta]\n"
+                "*Titular:* [tu nombre completo]"
+            )
+            return f"Solicitud de reembolso iniciada para {num_corto}. El cliente recibio las instrucciones."
+
+    # ── comprobante reembolso [número] ──
+    m_comp = re.match(r"comprobante\s+reembolso\s+(\d+)", msg_low)
+    if m_comp:
+        num_cliente = f"whatsapp:+{m_comp.group(1)}"
+        if not media_url:
+            return "Adjunta la foto del comprobante de reembolso con el mensaje."
+        twilio_send(
+            num_cliente,
+            "✅ Tu reembolso fue procesado. Aquí está el comprobante de la transferencia.",
+            media_url=media_url,
+        )
+        return f"Comprobante enviado al cliente."
 
     # ── confirmar pago / rechazar pago ──
     m_confirmar = re.match(r"confirmar\s+pago\s+(\d+)", msg_low)

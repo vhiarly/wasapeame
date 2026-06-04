@@ -17,7 +17,12 @@ _COMANDOS = {
         "mis citas semana — ver las citas de los proximos 7 dias\n"
         "ocupado hasta [hora] — bloquear la agenda hasta esa hora (ej: ocupado hasta 5pm)\n"
         "no disponible — bloquear el resto del dia\n"
-        "libre [dia] — bloquear un dia completo (ej: libre lunes)"
+        "libre [dia] — bloquear un dia completo (ej: libre lunes)\n"
+        "confirmar pago [numero] — confirmar cita de un cliente tras revisar su comprobante\n"
+        "rechazar pago [numero] — rechazar un comprobante invalido\n"
+        "chat [numero] — abrir canal directo con un cliente por 30 min (ambos hablan por el bot)\n"
+        "cerrar chat [numero] — cerrar el canal y elegir: confirmar cita o cancelar+reembolso\n"
+        "comprobante reembolso [numero] — enviar comprobante de devolucion al cliente (adjunta la foto)"
     ),
 }
 

@@ -49,16 +49,20 @@ def twilio_send(to, body, media_url=None):
 
 
 timers           = {}
+timers_relay     = {}
 _clientes_vistos = set()
 
 TIMEOUT_SEGUNDOS = 180
+RELAY_SEGUNDOS   = 1800  # 30 minutos
 
 _PATRONES_NEGOCIO = {
     "pedidos": [r"^no\s+hay\b", r"\blisto\b"],
     "citas":   [r"mis\s+citas\s+(hoy|semana)", r"ocupado\s+hasta\b",
                 r"\bno\s+disponible\b", r"\blibre\s+\w+",
                 r"^cancelar\s+cita\b", r"^cancelar\s+\d{4}",
-                r"^confirmar\s+pago\b", r"^rechazar\s+pago\b"],
+                r"^confirmar\s+pago\b", r"^rechazar\s+pago\b",
+                r"^chat\s+\d+", r"^cerrar\s+chat\s+\d+",
+                r"^comprobante\s+reembolso\s+\d+"],
     "comun":   [r"^ayuda$", r"^admin\s+"],
 }
 
@@ -99,6 +103,27 @@ def reiniciar_timer(numero_cliente):
     timers[numero_cliente] = timer
 
 
+def cerrar_relay_por_timeout(numero_cliente):
+    from flujo_citas import cerrar_relay_timeout
+    timers_relay.pop(numero_cliente, None)
+    cerrar_relay_timeout(numero_cliente, twilio_send)
+
+
+def iniciar_timer_relay(numero_cliente):
+    if numero_cliente in timers_relay:
+        timers_relay[numero_cliente].cancel()
+    t = threading.Timer(RELAY_SEGUNDOS, cerrar_relay_por_timeout, args=[numero_cliente])
+    t.daemon = True
+    t.start()
+    timers_relay[numero_cliente] = t
+
+
+def cancelar_timer_relay(numero_cliente):
+    if numero_cliente in timers_relay:
+        timers_relay[numero_cliente].cancel()
+        timers_relay.pop(numero_cliente, None)
+
+
 iniciar_recordatorios(twilio_send)
 
 
@@ -114,6 +139,15 @@ def webhook():
 
     resp = MessagingResponse()
     msg  = resp.message()
+
+    # ── RELAY: intercepción antes de cualquier otro routing ──
+    from flujo_citas import manejar_relay_mensaje
+    relay_resp = manejar_relay_mensaje(numero_cliente, mensaje, media_url, twilio_send,
+                                       iniciar_timer_relay, cancelar_timer_relay)
+    if relay_resp is not None:
+        if relay_resp:
+            msg.body(relay_resp)
+        return str(resp)
 
     # ── MENSAJES DE NEGOCIOS DEL ROUTER ──
     codigo_emisor = es_numero_negocio(numero_cliente)
@@ -142,7 +176,9 @@ def webhook():
 
     # ── ADMIN CITAS ──
     if re.match(r"^admin\s+", mensaje_lower) or tiene_sesion_admin_citas(numero_cliente):
-        resultado = manejar_negocio_citas(numero_cliente, mensaje, twilio_send)
+        resultado = manejar_negocio_citas(numero_cliente, mensaje, twilio_send,
+                                          iniciar_timer_relay=iniciar_timer_relay,
+                                          cancelar_timer_relay=cancelar_timer_relay)
         if resultado:
             msg.body(resultado)
         return str(resp)
