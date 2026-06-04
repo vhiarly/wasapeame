@@ -269,6 +269,64 @@ def manejar_relay_mensaje(numero, mensaje, media_url, twilio_send,
     """
     msg_low = mensaje.lower().strip()
 
+    # ── No-show reportado por cliente ──
+    if re.match(r"no\s+show(?:\s+[a-zA-Z]|$)", msg_low):
+        resultado = manejar_no_show_cliente(numero, mensaje, twilio_send)
+        if resultado:
+            return resultado
+
+    # ── Cliente decide tras no-show del negocio ──
+    conv_ns = execute(
+        "SELECT * FROM conversaciones_citas WHERE numero_cliente = %s AND estado = 'noshow_esperando_decision'",
+        (numero,), fetch="one"
+    )
+    if conv_ns:
+        negocio_ns = obtener_negocio(conv_ns["codigo"])
+        if mensaje.strip() == "1":
+            # Reagendar — resetear estado para nuevo flujo
+            _del_estado_cita(numero)
+            return (
+                f"De acuerdo. Para reagendar escribe *{conv_ns['codigo']}* "
+                f"y selecciona una nueva fecha y hora."
+            )
+        if mensaje.strip() == "2":
+            # Reembolso
+            execute(
+                "UPDATE conversaciones_citas SET estado = 'esperando_datos_reembolso' WHERE numero_cliente = %s",
+                (numero,)
+            )
+            twilio_send(negocio_ns["numero_negocio"],
+                f"El cliente {numero} eligio reembolso por no-show.")
+            return (
+                "Para procesar tu reembolso necesito tus datos bancarios.\n\n"
+                "Escribe en este formato:\n"
+                "*Banco:* [nombre del banco]\n"
+                "*Cuenta:* [numero de cuenta]\n"
+                "*Titular:* [tu nombre completo]"
+            )
+        return "Escribe *1* para reagendar o *2* para reembolso."
+
+    # ── Cliente responde al no-show de sí mismo ──
+    conv_ns_cli = execute(
+        "SELECT * FROM conversaciones_citas WHERE numero_cliente = %s AND estado = 'noshow_cliente_esperando'",
+        (numero,), fetch="one"
+    )
+    if conv_ns_cli:
+        negocio_c = obtener_negocio(conv_ns_cli["codigo"])
+        if mensaje.strip() == "1":
+            execute("UPDATE conversaciones_citas SET estado = 'noshow_cliente_reagendar_pendiente' WHERE numero_cliente = %s", (numero,))
+            twilio_send(negocio_c["numero_negocio"],
+                f"El cliente {numero} solicita reagendar tras no-show. "
+                f"Escribe *chat {numero.replace('whatsapp:+','')}* para coordinarse "
+                f"o *rechazar pago {numero.replace('whatsapp:+','')}* para cancelar sin reagendar.")
+            return "Tu solicitud fue enviada al negocio. Te avisamos cuando respondan."
+        if mensaje.strip() == "2":
+            _del_estado_cita(numero)
+            twilio_send(negocio_c["numero_negocio"],
+                f"El cliente {numero} cancelo su cita (no-show del cliente). Cita cerrada.")
+            return "Tu cita fue cancelada. Recuerda que el pago no es reembolsable en caso de no presentarse."
+        return "Escribe *1* para reagendar o *2* para cancelar."
+
     # ── Caso 1: El mensaje viene del CLIENTE en relay ──
     relay = _get_relay(numero)
     if relay and relay["estado"] == "activo":
@@ -464,6 +522,122 @@ def iniciar_recordatorios(twilio_send):
                 print(f"[RECORDATORIOS] Error: {e}")
             time.sleep(60)
     threading.Thread(target=_loop, daemon=True).start()
+
+
+# ── No-show helpers ──────────────────────────────────────────────────────────
+
+def _get_cita_confirmada(numero_cliente, codigo=None):
+    """Retorna la cita confirmada más reciente del cliente."""
+    if codigo:
+        return execute(
+            "SELECT * FROM citas WHERE numero_cliente = %s AND codigo = %s "
+            "AND estado = 'confirmada' ORDER BY agendado_en DESC LIMIT 1",
+            (numero_cliente, codigo), fetch="one"
+        )
+    return execute(
+        "SELECT * FROM citas WHERE numero_cliente = %s AND estado = 'confirmada' "
+        "ORDER BY agendado_en DESC LIMIT 1",
+        (numero_cliente,), fetch="one"
+    )
+
+
+def manejar_no_show_cliente(numero_cliente, mensaje, twilio_send):
+    """
+    Cliente reporta que el negocio no se presentó.
+    Detecta 'no show SE1' (código) o 'no show' (auto-detect).
+    Retorna respuesta o None si no aplica.
+    """
+    msg_low = mensaje.lower().strip()
+    m = re.match(r"no\s+show(?:\s+([a-z0-9]+))?$", msg_low)
+    if not m:
+        return None
+
+    codigo_hint = (m.group(1) or "").upper() if m.group(1) else None
+
+    # Buscar cita confirmada
+    cita = _get_cita_confirmada(numero_cliente, codigo_hint)
+    if not cita:
+        if codigo_hint:
+            return f"No encontre una cita confirmada con {codigo_hint}. Verifica el codigo."
+        # Buscar sin código — preguntar al cliente
+        citas = execute(
+            "SELECT c.*, n.nombre as negocio_nombre FROM citas c "
+            "JOIN negocios n ON c.codigo = n.codigo "
+            "WHERE c.numero_cliente = %s AND c.estado = 'confirmada' "
+            "ORDER BY c.agendado_en DESC LIMIT 3",
+            (numero_cliente,), fetch="all"
+        ) or []
+        if not citas:
+            return "No encontre citas confirmadas activas. Si tienes el codigo del negocio escribe: *no show [codigo]*"
+        if len(citas) == 1:
+            cita = citas[0]
+        else:
+            lineas = ["¿Sobre cuál cita es el no-show?\n"]
+            for i, c in enumerate(citas, 1):
+                lineas.append(f"{i}. {c['negocio_nombre']} — {c['nombre_servicio']} {c['fecha']}")
+            lineas.append("\nEscribe el *numero* de la cita.")
+            # Guardar estado temporal
+            execute("""
+                INSERT INTO conversaciones_citas (numero_cliente, codigo, estado)
+                VALUES (%s, %s, 'esperando_seleccion_noshow')
+                ON CONFLICT (numero_cliente) DO UPDATE SET estado = 'esperando_seleccion_noshow'
+            """, (numero_cliente, citas[0]["codigo"]))
+            return "\n".join(lineas)
+
+    return _procesar_no_show_negocio(numero_cliente, cita, twilio_send)
+
+
+def _procesar_no_show_negocio(numero_cliente, cita, twilio_send):
+    """Procesa el no-show del negocio para una cita específica."""
+    negocio = obtener_negocio(cita["codigo"])
+    no_show_count = (cita.get("no_show_negocio") or 0) + 1
+    execute("UPDATE citas SET no_show_negocio = %s WHERE id = %s", (no_show_count, cita["id"]))
+
+    if no_show_count >= 2:
+        # Segunda vez — reembolso completo
+        execute("UPDATE citas SET estado = 'cancelada' WHERE id = %s", (cita["id"],))
+        twilio_send(
+            negocio["numero_negocio"],
+            f"🚨 SEGUNDO NO-SHOW — REEMBOLSO REQUERIDO\n\n"
+            f"Cliente: {numero_cliente}\n"
+            f"Servicio: {cita['nombre_servicio']}\n"
+            f"Este es el segundo no-show con este cliente. "
+            f"Debes procesar el reembolso completo.\n\n"
+            f"Envia el comprobante con: comprobante reembolso {numero_cliente.replace('whatsapp:+','')}"
+        )
+        return (
+            "Hemos registrado que *Sir'Legal* no se presento por segunda vez.\n\n"
+            "Segun nuestra politica, tienes derecho a un *reembolso completo*.\n\n"
+            "El negocio fue notificado y debe procesar la devolucion. "
+            "Recibirás el comprobante por este chat.\n\n"
+            f"Mas informacion: wasapeame.co/descargo"
+        )
+
+    # Primera vez — cliente decide qué quiere
+    twilio_send(
+        negocio["numero_negocio"],
+        f"🚨 NO-SHOW REPORTADO\n\n"
+        f"Cliente: {numero_cliente}\n"
+        f"Servicio: {cita['nombre_servicio']} — {cita['fecha']}\n\n"
+        f"El cliente decide si reagenda o pide reembolso. "
+        f"Si el cliente reagenda y vuelves a fallar, deberás hacer reembolso completo."
+    )
+    execute(
+        "UPDATE conversaciones_citas SET estado = 'noshow_esperando_decision' WHERE numero_cliente = %s",
+        (numero_cliente,)
+    ) if execute("SELECT 1 FROM conversaciones_citas WHERE numero_cliente = %s", (numero_cliente,), fetch="one") else \
+    execute("""
+        INSERT INTO conversaciones_citas (numero_cliente, codigo, estado)
+        VALUES (%s, %s, 'noshow_esperando_decision')
+    """, (numero_cliente, cita["codigo"]))
+
+    return (
+        f"Registramos que *{negocio['nombre']}* no se presento.\n\n"
+        "¿Qué prefieres hacer?\n\n"
+        "1. Reagendar la cita (tu pago sigue vigente)\n"
+        "2. Reembolso completo\n\n"
+        f"Tus derechos: wasapeame.co/descargo"
+    )
 
 
 # ── Flujo cliente ─────────────────────────────────────────────────────────────
@@ -846,6 +1020,31 @@ def manejar_negocio_citas(numero, mensaje, twilio_send,
     codigo  = codigo_activo
     negocio = obtener_negocio(codigo)
     hoy     = date.today()
+
+    # ── no show [número] — Pilar reporta cliente no-show ──
+    m_ns = re.match(r"no\s+show\s+(\d+)$", msg_low)
+    if m_ns:
+        num_cliente = f"whatsapp:+{m_ns.group(1)}"
+        cita = _get_cita_confirmada(num_cliente, codigo)
+        if not cita:
+            return f"No encontre una cita confirmada para ese número."
+        execute("UPDATE citas SET no_show_cliente = TRUE WHERE id = %s", (cita["id"],))
+        if execute("SELECT 1 FROM conversaciones_citas WHERE numero_cliente = %s", (num_cliente,), fetch="one"):
+            execute("UPDATE conversaciones_citas SET estado = 'noshow_cliente_esperando' WHERE numero_cliente = %s", (num_cliente,))
+        else:
+            execute("INSERT INTO conversaciones_citas (numero_cliente, codigo, estado) VALUES (%s, %s, 'noshow_cliente_esperando')",
+                    (num_cliente, codigo))
+        twilio_send(
+            num_cliente,
+            f"*{negocio['nombre']}* reporta que no te presentaste a tu cita del "
+            f"{cita['fecha']} a las {_fmt12(cita['hora'])}.\n\n"
+            f"El pago realizado no es reembolsable en caso de ausencia del cliente.\n\n"
+            f"¿Qué deseas hacer?\n"
+            f"1. Solicitar reagendar (sujeto a aprobacion del negocio)\n"
+            f"2. Cancelar la cita\n\n"
+            f"wasapeame.co/descargo"
+        )
+        return f"Cliente {m_ns.group(1)} notificado. Espera su respuesta."
 
     # ── chat [número] — abrir relay (solo si hay pago pendiente de confirmar) ──
     m_chat = re.match(r"chat\s+(\d+)", msg_low)
