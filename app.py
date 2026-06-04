@@ -239,15 +239,15 @@ def webhook():
     if numero_cliente not in _clientes_vistos:
         _clientes_vistos.add(numero_cliente)
         msg.body(
-            "Bienvenido a *Wasapeame!* 🌿\n\n"
-            "Somos la plataforma de WhatsApp para negocios locales — pedidos, citas y más.\n\n"
-            "Para continuar, escribe el *código del negocio* al inicio de tu mensaje.\n\n"
-            "Ejemplo: escribe *CO1 hola* para conectarte con un negocio.\n\n"
-            "Si no tienes el código, pídelo directamente al negocio."
+            "Bienvenido a *Wasapeame* 👋\n\n"
+            "Conecta con tu negocio favorito directo desde WhatsApp.\n"
+            "🛒 Pedidos  |  📅 Citas  |  💬 Consultas  |  📦 Catálogos\n\n"
+            "🔑 Escribe el *código del negocio* para comenzar.\n"
+            "📲 Si no lo tienes, pídelo al negocio."
         )
         return str(resp)
 
-    msg.body("Escribe el *código del negocio* para continuar. Si no lo tienes, pídelo al negocio.")
+    msg.body("🔑 Escribe el *código del negocio* para continuar.\n📲 Si no lo tienes, pídelo al negocio.")
     return str(resp)
 
 
