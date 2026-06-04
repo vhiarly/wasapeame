@@ -183,6 +183,11 @@ def webhook():
     return str(resp)
 
 
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
 @app.route("/privacy")
 @app.route("/privacy.html")
 def privacy():
