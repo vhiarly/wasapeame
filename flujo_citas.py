@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, date, time as dtime
 from db import execute
 from negocio_router import obtener_negocio
 from google_calendar import get_google_tokens, crear_cita_con_meet, mensaje_confirmacion_virtual
+from asistente_ia import validar_comprobante
 
 DIAS_ISO  = {0:"lunes", 1:"martes", 2:"miercoles", 3:"jueves", 4:"viernes", 5:"sabado", 6:"domingo"}
 DIAS_ES   = {"lunes":0,"martes":1,"miercoles":2,"miércoles":2,
@@ -578,14 +579,46 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
             return (negocio.get("instrucciones_pago", "") +
                     "\n\nAun no hemos recibido tu comprobante. *Envia la foto* por este chat.")
 
-        tipo_txt  = "Online (Google Meet)" if estado.get("tipo") == "online" else "Presencial"
+        # Determinar monto esperado según tipo
+        tipo_cita = estado.get("tipo")
+        if tipo_cita == "online":
+            monto_esp = negocio.get("costo_online") or servicio["precio"]
+        else:
+            monto_esp = negocio.get("costo_presencial") or servicio["precio"]
+
+        # Validar con IA
+        valido, razon = validar_comprobante(media_url, monto_esp)
+
+        tipo_txt  = "Online (Google Meet)" if tipo_cita == "online" else "Presencial"
         lugar_txt = f"\nLugar:    {estado['lugar']}" if estado.get("lugar") else ""
+
+        if valido is False:
+            # Comprobante inválido — notificar a Pilar y rechazar
+            twilio_send(
+                negocio["numero_negocio"],
+                f"⚠️ COMPROBANTE SOSPECHOSO\n\n"
+                f"Servicio: {servicio['nombre']}\n"
+                f"Tipo:     {tipo_txt}{lugar_txt}\n"
+                f"Dia:      {estado['nombre_dia']} — {_fmt12(estado['hora'])}\n"
+                f"Cliente:  {numero_cliente}\n"
+                f"Razon IA: {razon}",
+                media_url=media_url,
+            )
+            return (
+                "No pudimos validar tu comprobante. Verifica que:\n\n"
+                "• El monto sea correcto\n"
+                "• La cuenta destino termine en *0083*\n"
+                "• La transferencia este completada\n\n"
+                "Envia de nuevo la foto o contacta al negocio."
+            )
+
+        # Valido o no pudo verificar (None) — proceder y notificar a Pilar
+        estado_validacion = "✅ Validado por IA" if valido else "⚠️ No verificado — revisar manualmente"
         twilio_send(
             negocio["numero_negocio"],
-            f"PAGO RECIBIDO\n\n"
+            f"PAGO RECIBIDO — {estado_validacion}\n\n"
             f"Servicio: {servicio['nombre']}\n"
-            f"Tipo:     {tipo_txt}"
-            f"{lugar_txt}\n"
+            f"Tipo:     {tipo_txt}{lugar_txt}\n"
             f"Dia:      {estado['nombre_dia']} — {_fmt12(estado['hora'])}\n"
             f"Cliente:  {numero_cliente}",
             media_url=media_url,
