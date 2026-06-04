@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Descargo de Responsabilidad — Wasapeame</title>
+  <link rel="icon" type="image/png" sizes="512x512" href="{{ url_for('static', filename='favicon.png') }}"/>
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='favicon.png') }}"/>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --brand: #00C896;
+      --bg: #080D0A;
+      --surface: #111812;
+      --text: #E8F5EE;
+      --muted: #7A9A87;
+      --border: rgba(0,200,150,0.12);
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Plus Jakarta Sans", sans-serif;
+      font-size: 15px;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+    header {
+      padding: 32px 40px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .logo-img { height: 130px; width: auto; mix-blend-mode: lighten; }
+    main { max-width: 720px; margin: 0 auto; padding: 60px 40px 100px; }
+    .badge {
+      display: inline-block;
+      background: rgba(0,200,150,0.1);
+      border: 1px solid rgba(0,200,150,0.25);
+      color: var(--brand);
+      font-size: 12px; font-weight: 600; letter-spacing: 0.5px;
+      padding: 4px 12px; border-radius: 50px; margin-bottom: 20px;
+      text-transform: uppercase;
+    }
+    h1 { font-size: 36px; font-weight: 700; line-height: 1.2; letter-spacing: -0.5px; margin-bottom: 8px; }
+    .updated { color: var(--muted); font-size: 14px; margin-bottom: 48px; }
+    section { margin-bottom: 40px; }
+    h2 {
+      font-size: 14px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1px; color: var(--brand); margin-bottom: 12px;
+    }
+    p, li { font-size: 15px; line-height: 1.75; color: #B8D4C5; }
+    ul { padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+    li::marker { color: var(--brand); }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px 24px; margin-top: 12px;
+    }
+    .card p { margin: 0; }
+    .highlight {
+      background: rgba(0,200,150,0.08);
+      border-left: 3px solid var(--brand);
+      border-radius: 0 8px 8px 0;
+      padding: 16px 20px; margin: 20px 0;
+    }
+    a { color: var(--brand); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    footer { text-align: center; padding: 32px 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); }
+    @media (max-width: 600px) {
+      header { padding: 20px 24px; }
+      main { padding: 40px 24px 80px; }
+      h1 { font-size: 28px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <img src="{{ url_for('static', filename='wpicon.png') }}" alt="Wasapeame" class="logo-img"/>
+</header>
+
+<main>
+  <div class="badge">Descargo</div>
+  <h1>Descargo de Responsabilidad</h1>
+  <p class="updated">Última actualización: junio 2026</p>
+
+  <div class="highlight">
+    <p><strong>Wasapeame es una plataforma de comunicación.</strong> No procesamos, intermediamos ni garantizamos pagos entre clientes y negocios. El acuerdo económico es directamente entre el cliente y el negocio.</p>
+  </div>
+
+  <section>
+    <h2>Qué es Wasapeame</h2>
+    <p>Wasapeame es un servicio de automatización de mensajes que permite a los negocios comunicarse con sus clientes a través de WhatsApp. Facilitamos la coordinación de citas, pedidos y pagos, pero no somos parte del contrato entre el cliente y el negocio.</p>
+  </section>
+
+  <section>
+    <h2>Transacciones económicas</h2>
+    <p>Cualquier pago, transferencia o transacción económica que realices a través de los canales indicados por un negocio en Wasapeame es de exclusiva responsabilidad del cliente y del negocio. Wasapeame:</p>
+    <ul>
+      <li>No recibe, retiene ni transfiere dinero en ningún momento.</li>
+      <li>No es parte del contrato de servicio entre el cliente y el negocio.</li>
+      <li>No puede garantizar la prestación del servicio contratado.</li>
+      <li>No puede emitir reembolsos ni mediar en disputas económicas.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Incumplimiento de servicio</h2>
+    <p>Si un negocio no cumple con el servicio acordado (no se presenta, cancela sin previo aviso, o no responde), Wasapeame actuará como facilitador de comunicación para intentar resolver la situación. Sin embargo, no podemos garantizar ni ser responsables del resultado de esa gestión.</p>
+    <div class="card">
+      <p>En caso de conflicto, te recomendamos conservar todos los comprobantes de pago y comunicarte directamente con el negocio. Wasapeame puede facilitar el contacto pero no puede intervenir en decisiones comerciales del negocio.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Limitación de responsabilidad</h2>
+    <p>Wasapeame no será responsable por pérdidas económicas, daños directos o indirectos derivados de transacciones realizadas entre clientes y negocios que usen nuestra plataforma. Al realizar un pago indicado por un negocio a través de Wasapeame, el cliente reconoce y acepta esta limitación.</p>
+  </section>
+
+  <section>
+    <h2>Contacto</h2>
+    <p>¿Tienes preguntas sobre este descargo? Escríbenos a <a href="mailto:hola@wasapeame.co">hola@wasapeame.co</a></p>
+  </section>
+</main>
+
+<footer>
+  © 2026 Wasapeame · wasapeame.co · hola@wasapeame.co ·
+  <a href="/privacidad">Privacidad</a> ·
+  <a href="/terms">Términos</a>
+</footer>
+
+</body>
+</html>

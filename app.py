@@ -225,6 +225,11 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/descargo")
+def descargo():
+    return render_template("descargo.html")
+
+
 @app.route("/privacy")
 @app.route("/privacy.html")
 def privacy():
