@@ -11,7 +11,7 @@ HORAS_LABORALES_LIMITE = 7
 
 
 def _horas_laborales_hasta(fecha_cita, hora_cita_str, negocio):
-    """Calcula horas laborales desde ahora hasta la cita según el horario del negocio."""
+    """Calcula horas laborables desde ahora hasta la cita según el horario del negocio."""
     ahora = datetime.now(TZ_RD)
     h, m  = map(int, hora_cita_str.split(":"))
     cita_dt = datetime(fecha_cita.year, fecha_cita.month, fecha_cita.day, h, m,
@@ -323,7 +323,7 @@ def manejar_relay_mensaje(numero, mensaje, media_url, twilio_send,
                     codigo = EXCLUDED.codigo, estado = 'reagendar_pendiente_aprobacion'
             """, (numero, cita["codigo"]))
             nota_politica = (
-                f"El cliente tiene *{horas:.1f} horas laborales* de anticipacion "
+                f"El cliente tiene *{horas:.1f} horas laborables* de anticipacion "
                 f"({'reembolso garantizado si rechazas' if politica else 'fuera de politica — reembolso a tu criterio'})"
             )
             twilio_send(negocio_r["numero_negocio"],
@@ -354,14 +354,14 @@ def manejar_relay_mensaje(numero, mensaje, media_url, twilio_send,
                     f"Cliente:  {numero}\n"
                     f"Servicio: {cita['nombre_servicio']}\n"
                     f"Cita:     {cita['fecha']} a las {_fmt12(str(cita['hora'])[:5])}\n"
-                    f"Horas laborales restantes: {horas:.1f}h (politica: +7h = reembolso garantizado)\n\n"
+                    f"Horas laborables restantes: {horas:.1f}h (politica: +7h = reembolso garantizado)\n\n"
                     f"Debes procesar el reembolso completo.\n"
                     f"Envia comprobante con: comprobante reembolso {numero.replace('whatsapp:+','')}"
                 )
                 execute("UPDATE citas SET estado = 'cancelada' WHERE id = %s", (cita["id"],))
                 return (
                     "Tu cita fue cancelada. Tienes derecho a *reembolso completo* "
-                    f"ya que cancelaste con mas de {HORAS_LABORALES_LIMITE} horas laborales de anticipacion.\n\n"
+                    f"ya que cancelaste con mas de {HORAS_LABORALES_LIMITE} horas laborables de anticipacion.\n\n"
                     "Por favor envia tus datos bancarios para procesar la devolucion:\n\n"
                     "*Banco:* [nombre]\n*Cuenta:* [numero]\n*Titular:* [nombre completo]"
                 )
@@ -378,14 +378,14 @@ def manejar_relay_mensaje(numero, mensaje, media_url, twilio_send,
                     f"Cliente:  {numero}\n"
                     f"Servicio: {cita['nombre_servicio']}\n"
                     f"Cita:     {cita['fecha']} a las {_fmt12(str(cita['hora'])[:5])}\n"
-                    f"Horas laborales restantes: {horas:.1f}h (politica: menos de {HORAS_LABORALES_LIMITE}h — reembolso a tu criterio)\n\n"
+                    f"Horas laborables restantes: {horas:.1f}h (politica: menos de {HORAS_LABORALES_LIMITE}h — reembolso a tu criterio)\n\n"
                     f"Escribe *aprobar reembolso {numero.replace('whatsapp:+','')}* si decides reembolsar\n"
                     f"o *rechazar reembolso {numero.replace('whatsapp:+','')}* si no aplica."
                 )
                 execute("UPDATE citas SET estado = 'cancelada' WHERE id = %s", (cita["id"],))
                 return (
                     "Tu cita fue cancelada. Estás dentro de las "
-                    f"*{HORAS_LABORALES_LIMITE} horas laborales* de anticipacion, "
+                    f"*{HORAS_LABORALES_LIMITE} horas laborables* de anticipacion, "
                     "por lo que el reembolso queda a criterio del negocio.\n\n"
                     "Te notificaremos su decision. "
                     f"Ver politica: wasapeame.co/descargo"
