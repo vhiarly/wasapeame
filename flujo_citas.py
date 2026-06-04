@@ -337,7 +337,7 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send):
                     "Escribe *1* o *2*.")
         estado["estado"] = "esperando_servicio"
         _set_estado_cita(numero_cliente, estado)
-        return _txt_servicios(negocio)
+        return f"Bienvenido a {negocio['nombre']}!\n\n" + _txt_servicios(negocio)
 
     # ── ESPERANDO TIPO ──
     if s == "esperando_tipo":
