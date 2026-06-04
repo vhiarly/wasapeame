@@ -299,7 +299,84 @@ def tiene_flujo_citas(numero_cliente):
     ) is not None
 
 
-def manejar_cita(numero_cliente, codigo, mensaje, twilio_send):
+def _msg_confirmacion(estado, servicio, negocio):
+    tipo_final = estado.get("tipo")
+    if tipo_final == "online":
+        costo_final = negocio.get("costo_online") or servicio["precio"]
+        tipo_linea  = "💻 *Online — Google Meet*"
+    elif tipo_final == "presencial":
+        costo_final = negocio.get("costo_presencial") or servicio["precio"]
+        tipo_linea  = f"📍 *{estado['lugar']}*" if estado.get("lugar") else "📍 *Presencial*"
+    else:
+        costo_final = servicio["precio"]
+        tipo_linea  = None
+
+    r  = "✅ *Cita confirmada*\n\n"
+    r += f"Negocio:  {negocio['nombre']}\n"
+    r += f"Servicio: {servicio['nombre']}\n"
+    if tipo_linea:
+        r += f"Tipo:     {tipo_linea}\n"
+    r += f"Dia:      {estado['nombre_dia']}\n"
+    r += f"Hora:     *{_fmt12(estado['hora'])}*\n"
+    if costo_final:
+        r += f"Costo:    *${costo_final:,} DOP*\n"
+    if tipo_final == "online":
+        r += "\nEn breve recibes el enlace de Google Meet por este chat."
+    return r
+
+
+def _procesar_confirmacion(codigo, numero_cliente, estado, servicio, negocio, twilio_send):
+    fecha_dt = datetime.strptime(estado["dia"], "%Y-%m-%d").date()
+    execute("""
+        INSERT INTO citas
+            (codigo, numero_cliente, servicio, nombre_servicio, fecha, hora,
+             duracion_minutos, estado, tipo, lugar, agendado_en, recordatorio_enviado)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 'confirmada', %s, %s, NOW(), FALSE)
+    """, (
+        codigo, numero_cliente, estado["servicio_clave"], servicio["nombre"],
+        fecha_dt, estado["hora"], servicio["duracion_minutos"],
+        estado.get("tipo"), estado.get("lugar"),
+    ))
+
+    tipo_txt  = "Online (Google Meet)" if estado.get("tipo") == "online" else "Presencial"
+    lugar_txt = f"\nLugar:    {estado['lugar']}" if estado.get("lugar") else ""
+    twilio_send(
+        negocio["numero_negocio"],
+        f"NUEVA CITA\n\n"
+        f"Servicio: {servicio['nombre']}\n"
+        f"Tipo:     {tipo_txt}"
+        f"{lugar_txt}\n"
+        f"Dia:      {estado['nombre_dia']} — {_fmt12(estado['hora'])}\n"
+        f"Cliente:  {numero_cliente}"
+    )
+
+    # Google Calendar
+    meet_link = None
+    if get_google_tokens(codigo):
+        try:
+            es_virtual = estado.get("tipo") == "online"
+            h, m = map(int, estado["hora"].split(":"))
+            inicio = datetime.combine(fecha_dt, dtime(h, m))
+            meet_link = crear_cita_con_meet(
+                codigo=codigo,
+                nombre_cliente=numero_cliente,
+                servicio=servicio["nombre"],
+                inicio=inicio,
+                duracion_minutos=servicio["duracion_minutos"],
+                numero_whatsapp=numero_cliente,
+                es_virtual=es_virtual,
+            )
+            if es_virtual and meet_link:
+                twilio_send(numero_cliente, mensaje_confirmacion_virtual(
+                    negocio["nombre"], servicio["nombre"], inicio, meet_link
+                ))
+        except Exception as e:
+            print(f"[Google Calendar] Error para {codigo}: {e}")
+
+    return meet_link
+
+
+def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
     msg = mensaje.strip().lower()
 
     estado = _get_estado_cita(numero_cliente)
@@ -484,81 +561,38 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send):
             return (f"Servicio: {servicio['nombre']} — {_fmt12(estado['hora'])} el {estado['nombre_dia']}\n\n"
                     "Escribe *si* para confirmar o *cancelar* para salir.")
 
-        fecha_dt = datetime.strptime(estado["dia"], "%Y-%m-%d").date()
-        execute("""
-            INSERT INTO citas
-                (codigo, numero_cliente, servicio, nombre_servicio, fecha, hora,
-                 duracion_minutos, estado, tipo, lugar, agendado_en, recordatorio_enviado)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'confirmada', %s, %s, NOW(), FALSE)
-        """, (
-            codigo, numero_cliente, estado["servicio_clave"], servicio["nombre"],
-            fecha_dt, estado["hora"], servicio["duracion_minutos"],
-            estado.get("tipo"), estado.get("lugar"),
-        ))
+        if negocio.get("requiere_comprobante") and negocio.get("instrucciones_pago"):
+            estado["estado"] = "esperando_comprobante"
+            _set_estado_cita(numero_cliente, estado)
+            return negocio["instrucciones_pago"]
+
+        meet_link = _procesar_confirmacion(codigo, numero_cliente, estado, servicio, negocio, twilio_send)
+        _del_estado_cita(numero_cliente)
+        if meet_link:
+            return _msg_confirmacion(estado, servicio, negocio)
+        return _msg_confirmacion(estado, servicio, negocio)
+
+    # ── ESPERANDO COMPROBANTE ──
+    if s == "esperando_comprobante" and servicio:
+        if not media_url:
+            return (negocio.get("instrucciones_pago", "") +
+                    "\n\nAun no hemos recibido tu comprobante. *Envia la foto* por este chat.")
 
         tipo_txt  = "Online (Google Meet)" if estado.get("tipo") == "online" else "Presencial"
         lugar_txt = f"\nLugar:    {estado['lugar']}" if estado.get("lugar") else ""
         twilio_send(
             negocio["numero_negocio"],
-            f"NUEVA CITA\n\n"
+            f"PAGO RECIBIDO\n\n"
             f"Servicio: {servicio['nombre']}\n"
             f"Tipo:     {tipo_txt}"
             f"{lugar_txt}\n"
             f"Dia:      {estado['nombre_dia']} — {_fmt12(estado['hora'])}\n"
-            f"Cliente:  {numero_cliente}"
+            f"Cliente:  {numero_cliente}",
+            media_url=media_url,
         )
-
-        # ── Google Calendar ──
-        meet_link = None
-        if get_google_tokens(codigo):
-            try:
-                es_virtual = estado.get("tipo") == "online"
-                h, m = map(int, estado["hora"].split(":"))
-                inicio = datetime.combine(fecha_dt, dtime(h, m))
-                meet_link = crear_cita_con_meet(
-                    codigo=codigo,
-                    nombre_cliente=numero_cliente,
-                    servicio=servicio["nombre"],
-                    inicio=inicio,
-                    duracion_minutos=servicio["duracion_minutos"],
-                    numero_whatsapp=numero_cliente,
-                    es_virtual=es_virtual,
-                )
-                if es_virtual and meet_link:
-                    twilio_send(numero_cliente, mensaje_confirmacion_virtual(
-                        negocio["nombre"], servicio["nombre"], inicio, meet_link
-                    ))
-            except Exception as e:
-                print(f"[Google Calendar] Error para {codigo}: {e}")
-
+        _procesar_confirmacion(codigo, numero_cliente, estado, servicio, negocio, twilio_send)
         _del_estado_cita(numero_cliente)
-
-        if meet_link:
-            return "Cita confirmada! El enlace de tu reunion virtual ya fue enviado."
-
-        tipo_final = estado.get("tipo")
-        if tipo_final == "online":
-            costo_final = negocio.get("costo_online") or servicio["precio"]
-            tipo_linea  = "💻 *Online — Google Meet*"
-        elif tipo_final == "presencial":
-            costo_final = negocio.get("costo_presencial") or servicio["precio"]
-            tipo_linea  = f"📍 *{estado['lugar']}*" if estado.get("lugar") else "📍 *Presencial*"
-        else:
-            costo_final = servicio["precio"]
-            tipo_linea  = None
-
-        r  = "✅ *Cita confirmada*\n\n"
-        r += f"Negocio:  {negocio['nombre']}\n"
-        r += f"Servicio: {servicio['nombre']}\n"
-        if tipo_linea:
-            r += f"Tipo:     {tipo_linea}\n"
-        r += f"Dia:      {estado['nombre_dia']}\n"
-        r += f"Hora:     *{_fmt12(estado['hora'])}*\n"
-        if costo_final:
-            r += f"Costo:    *${costo_final:,} DOP*\n"
-        if tipo_final == "online":
-            r += "\nEn breve recibes el enlace de Google Meet por este chat."
-        return r
+        return _msg_confirmacion(estado, servicio, negocio)
 
     return None
 

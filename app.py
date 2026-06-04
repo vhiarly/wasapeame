@@ -156,7 +156,7 @@ def webhook():
         else:
             modo = "citas" if tiene_flujo_citas(numero_cliente) else "pedidos"
         if modo == "citas":
-            respuesta = manejar_cita(numero_cliente, codigo, msg_flujo, twilio_send)
+            respuesta = manejar_cita(numero_cliente, codigo, msg_flujo, twilio_send, media_url=media_url)
         else:
             respuesta = manejar_pedido(numero_cliente, codigo, msg_flujo, twilio_send, media_url=media_url)
             if tiene_flujo_activo(numero_cliente):
