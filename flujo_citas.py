@@ -152,8 +152,8 @@ def _get_estado_cita(numero_cliente):
 def _set_estado_cita(numero_cliente, data):
     execute("""
         INSERT INTO conversaciones_citas
-            (numero_cliente, codigo, estado, servicio_clave, dia, nombre_dia, hora)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+            (numero_cliente, codigo, estado, servicio_clave, dia, nombre_dia, hora, tipo, lugar)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (numero_cliente) DO UPDATE SET
             codigo         = EXCLUDED.codigo,
             estado         = EXCLUDED.estado,
@@ -161,6 +161,8 @@ def _set_estado_cita(numero_cliente, data):
             dia            = EXCLUDED.dia,
             nombre_dia     = EXCLUDED.nombre_dia,
             hora           = EXCLUDED.hora,
+            tipo           = EXCLUDED.tipo,
+            lugar          = EXCLUDED.lugar,
             actualizado_en = NOW()
     """, (
         numero_cliente,
@@ -170,6 +172,8 @@ def _set_estado_cita(numero_cliente, data):
         data.get("dia"),
         data.get("nombre_dia"),
         data.get("hora"),
+        data.get("tipo"),
+        data.get("lugar"),
     ))
 
 def _del_estado_cita(numero_cliente):
@@ -313,9 +317,48 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send):
         _del_estado_cita(numero_cliente)
         return "Reserva cancelada. Escribe el codigo del negocio cuando quieras agendar."
 
-    # ── INICIO / ESPERANDO SERVICIO ──
-    if s in ("inicio", "esperando_servicio"):
+    # ── INICIO ──
+    lugares = negocio.get("lugares_reunion") or []
+    if s == "inicio":
+        if lugares:
+            estado["estado"] = "esperando_tipo"
+            _set_estado_cita(numero_cliente, estado)
+            return (f"Bienvenido a {negocio['nombre']}!\n\n"
+                    "¿Qué tipo de asesoría necesitas?\n\n"
+                    "1. Online (Google Meet)\n"
+                    "2. Presencial\n\n"
+                    "Escribe *1* o *2*.")
         estado["estado"] = "esperando_servicio"
+        _set_estado_cita(numero_cliente, estado)
+        return _txt_servicios(negocio)
+
+    # ── ESPERANDO TIPO ──
+    if s == "esperando_tipo":
+        if msg in ("1", "online"):
+            estado.update({"estado": "esperando_servicio", "tipo": "online"})
+            _set_estado_cita(numero_cliente, estado)
+            return _txt_servicios(negocio)
+        if msg in ("2", "presencial"):
+            estado.update({"estado": "esperando_lugar", "tipo": "presencial"})
+            _set_estado_cita(numero_cliente, estado)
+            lineas = ["Elige el lugar de reunion:\n"]
+            for i, l in enumerate(lugares, 1):
+                lineas.append(f"{i}. {l}")
+            lineas.append("\nEscribe el *numero* del lugar.")
+            return "\n".join(lineas)
+        return "Escribe *1* para Online o *2* para Presencial."
+
+    # ── ESPERANDO LUGAR ──
+    if s == "esperando_lugar":
+        if msg.isdigit() and 1 <= int(msg) <= len(lugares):
+            lugar = lugares[int(msg) - 1]
+            estado.update({"estado": "esperando_servicio", "lugar": lugar})
+            _set_estado_cita(numero_cliente, estado)
+            return _txt_servicios(negocio)
+        return f"Escribe un numero del 1 al {len(lugares)}."
+
+    # ── ESPERANDO SERVICIO ──
+    if s == "esperando_servicio":
         if not msg:
             _set_estado_cita(numero_cliente, estado)
             return _txt_servicios(negocio)
@@ -428,10 +471,14 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send):
             fecha_dt, estado["hora"], servicio["duracion_minutos"],
         ))
 
+        tipo_txt  = "Online (Google Meet)" if estado.get("tipo") == "online" else "Presencial"
+        lugar_txt = f"\nLugar:    {estado['lugar']}" if estado.get("lugar") else ""
         twilio_send(
             negocio["numero_negocio"],
             f"NUEVA CITA\n\n"
             f"Servicio: {servicio['nombre']}\n"
+            f"Tipo:     {tipo_txt}"
+            f"{lugar_txt}\n"
             f"Dia:      {estado['nombre_dia']} — {_fmt12(estado['hora'])}\n"
             f"Cliente:  {numero_cliente}"
         )
@@ -440,7 +487,7 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send):
         meet_link = None
         if get_google_tokens(codigo):
             try:
-                es_virtual = "online" in estado["servicio_clave"]
+                es_virtual = estado.get("tipo") == "online"
                 h, m = map(int, estado["hora"].split(":"))
                 inicio = datetime.combine(fecha_dt, dtime(h, m))
                 meet_link = crear_cita_con_meet(
@@ -464,10 +511,12 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send):
         if meet_link:
             return "Cita confirmada! El enlace de tu reunion virtual ya fue enviado."
 
+        lugar_conf = f"\nLugar:    {estado['lugar']}" if estado.get("lugar") else ""
         return (f"Cita confirmada!\n\n"
                 f"Servicio: {servicio['nombre']}\n"
                 f"Dia:      {estado['nombre_dia']}\n"
-                f"Hora:     {_fmt12(estado['hora'])}\n\n"
+                f"Hora:     {_fmt12(estado['hora'])}"
+                f"{lugar_conf}\n\n"
                 f"Te esperamos en {negocio['nombre']}.")
 
     return None
