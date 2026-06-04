@@ -19,7 +19,7 @@ def obtener_negocio(codigo):
             cur.execute(
                 "SELECT codigo, nombre, tipo, modo, numero_negocio, pin, activo, "
                 "requiere_comprobante, instrucciones_pago, lugares_reunion, descripcion, "
-                "costo_online, costo_presencial "
+                "costo_online, costo_presencial, test_mode "
                 "FROM negocios WHERE codigo = %s",
                 (codigo,)
             )

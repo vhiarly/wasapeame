@@ -66,9 +66,12 @@ pidiendo
   │     └─ (cola_rebanado not empty) → loops through queue
   ├─ (ambiguous number for libra product) → esperando_aclaracion_unidad
   └─ (confirmar) → esperando_confirmacion
-        └─ esperando_direccion → esperando_referencia → pedido_enviado
-              ├─ (ajustar) → ajustando → pedido_enviado
-              └─ (negocio says "no hay X") → esperando_decision
+        └─ esperando_direccion → esperando_referencia
+                                          ├─ (requiere_comprobante=false) → pedido_enviado
+                                          │     ├─ (ajustar) → ajustando → pedido_enviado
+                                          │     └─ (negocio says "no hay X") → esperando_decision
+                                          └─ (requiere_comprobante=true) → esperando_comprobante
+                                                └─ (foto recibida) → pedido_enviado
 ```
 
 `item_pendiente_rebanado` (JSONB column) is dual-purpose: in `esperando_rebanado` it holds the item awaiting a slicing answer; in `esperando_cantidad_libra` / `esperando_aclaracion_unidad` it holds quantity metadata. The states are exclusive so this works, but the column is semantically overloaded.
@@ -93,8 +96,6 @@ In-memory `timers` dict of `threading.Timer` objects, keyed by `numero_cliente`.
 
 ---
 
----
-
 ## Key Constraints
 
 - Messages must be plain text — Twilio does not render markdown.
@@ -110,7 +111,7 @@ In-memory `timers` dict of `threading.Timer` objects, keyed by `numero_cliente`.
 ```
 Repo:            github.com/vhiarly/wasapeame
 Deploy:          Azure App Service — resource group: wasapeame-rg, region: West Europe
-Twilio sender:   +849-256-9906    (número dominicano aprobado por Meta — TWILIO_WHATSAPP_NUMBER)
+Twilio sender:   +849-265-9906    (número dominicano aprobado por Meta — TWILIO_WHATSAPP_NUMBER=whatsapp:+18492659906)
 Endpoint:        POST /webhook
 ```
 

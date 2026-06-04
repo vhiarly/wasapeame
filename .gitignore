@@ -1,1 +1,4 @@
 .env
+test_confirmacion_se1.py
+create_se2_test.py
+update_se1_lugares.py

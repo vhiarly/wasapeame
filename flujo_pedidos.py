@@ -766,8 +766,8 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_url=None)
         if antes == 0:
             pos_txt = f"✅ Pedido confirmado. Tu puesto es P-{puesto} — eres el primero!"
         else:
-            s = "s" if antes > 1 else ""
-            pos_txt = f"✅ Pedido confirmado. Tu puesto es P-{puesto} — hay {antes} persona{s} antes que tí."
+            plural = "s" if antes > 1 else ""
+            pos_txt = f"✅ Pedido confirmado. Tu puesto es P-{puesto} — hay {antes} persona{plural} antes que tí."
 
         r  = pos_txt + "\n\n"
         r += "Tu pedido:\n"

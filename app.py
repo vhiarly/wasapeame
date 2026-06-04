@@ -1,6 +1,7 @@
 import os
 import re
 import threading
+import time
 from flask import Flask, request, g, make_response, render_template
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client
@@ -128,11 +129,39 @@ def cancelar_timer_relay(numero_cliente):
 
 iniciar_recordatorios(twilio_send)
 
+LIMITE_MSG = 1500
+
+def _responder(twiml_msg, texto, numero):
+    """Envía texto largo en partes; la última va por TwiML, las demás por twilio_send."""
+    if len(texto) <= LIMITE_MSG:
+        twiml_msg.body(texto)
+        return
+    partes, actual = [], ""
+    for linea in texto.split("\n"):
+        candidato = actual + ("\n" if actual else "") + linea
+        if len(candidato) > LIMITE_MSG and actual:
+            partes.append(actual)
+            actual = linea
+        else:
+            actual = candidato
+    if actual:
+        partes.append(actual)
+    for parte in partes[:-1]:
+        twilio_send(numero, parte)
+        time.sleep(1)
+    twiml_msg.body(partes[-1])
+
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     numero_cliente = request.form.get("From")
-    mensaje        = request.form.get("Body", "").strip()
+    # Normalizar mensaje: quitar asteriscos/guiones bajos de markdown, espacios raros
+    _raw = request.form.get("Body", "")
+    import unicodedata
+    _raw = unicodedata.normalize("NFKC", _raw)          # normaliza unicode (ej: nbsp → space)
+    _raw = re.sub(r"[*_~`]", "", _raw)                  # quita markdown de WhatsApp
+    _raw = re.sub(r"\s+", " ", _raw).strip()            # colapsa espacios múltiples
+    mensaje        = _raw
     mensaje_lower  = mensaje.lower().strip()
     media_url      = request.form.get("MediaUrl0")
 
@@ -173,7 +202,7 @@ def webhook():
                 resultado = consultar_ia(codigo_emisor, modo_emisor, mensaje)
 
             if resultado:
-                msg.body(resultado)
+                _responder(msg, resultado, numero_cliente)
             return str(resp)
 
     # ── ADMIN CITAS ──
@@ -182,7 +211,7 @@ def webhook():
                                           iniciar_timer_relay=iniciar_timer_relay,
                                           cancelar_timer_relay=cancelar_timer_relay)
         if resultado:
-            msg.body(resultado)
+            _responder(msg, resultado, numero_cliente)
         return str(resp)
 
     # ── ROUTER DE NEGOCIOS (clientes) ──
@@ -203,7 +232,7 @@ def webhook():
             else:
                 detener_timer(numero_cliente)
         if respuesta:
-            msg.body(respuesta)
+            _responder(msg, respuesta, numero_cliente)
         return str(resp)
 
     # ── SIN CÓDIGO ──

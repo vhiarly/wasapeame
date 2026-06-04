@@ -39,6 +39,23 @@ def _horas_laborales_hasta(fecha_cita, hora_cita_str, negocio):
 from google_calendar import get_google_tokens, crear_cita_con_meet, mensaje_confirmacion_virtual
 from asistente_ia import validar_comprobante
 
+def _fmt_numero(numero):
+    """whatsapp:+18298789906 → +1 829 878 9906"""
+    n = numero.replace("whatsapp:+", "").replace("+", "").strip()
+    if len(n) == 11 and n.startswith("1"):
+        return f"+1 {n[1:4]} {n[4:7]} {n[7:]}"
+    if len(n) == 10:
+        return f"+1 {n[:3]} {n[3:6]} {n[6:]}"
+    return f"+{n}"
+
+
+def _lugar_nombre(l):
+    return l["nombre"] if isinstance(l, dict) else l
+
+def _lugar_maps(l):
+    return l.get("maps") if isinstance(l, dict) else None
+
+
 DIAS_ISO  = {0:"lunes", 1:"martes", 2:"miercoles", 3:"jueves", 4:"viernes", 5:"sabado", 6:"domingo"}
 DIAS_ES   = {"lunes":0,"martes":1,"miercoles":2,"miércoles":2,
              "jueves":3,"viernes":4,"sabado":5,"sábado":5,"domingo":6}
@@ -154,14 +171,14 @@ def _dias_del_negocio(negocio, duracion_min, es_presencial=False):
 
 def _txt_servicios(negocio, tipo=None):
     lineas = [f"Nuestros servicios:\n"]
-    for i, (_, s) in enumerate(negocio.get("servicios", {}).items(), 1):
-        if s.get("activo", True):
-            lineas.append(f"{i}. {s['nombre']}")
+    activos = [(c, s) for c, s in negocio.get("servicios", {}).items() if s.get("activo", True)]
+    for i, (_, s) in enumerate(activos, 1):
+        lineas.append(f"{i}. {s['nombre']}")
     if tipo == "online" and negocio.get("costo_online"):
         lineas.append(f"\nCosto de consultoría: *${negocio['costo_online']:,} DOP*")
     elif tipo == "presencial" and negocio.get("costo_presencial"):
         lineas.append(f"\nCosto de consultoría: *${negocio['costo_presencial']:,} DOP*")
-    lineas += ["", "Escribe el *numero* del servicio.", "Escribe *cancelar* para salir."]
+    lineas += ["", "Escribe el *numero* del servicio o *cancelar* para salir."]
     return "\n".join(lineas)
 
 def _txt_dias(negocio, duracion_min, es_presencial=False):
@@ -171,7 +188,7 @@ def _txt_dias(negocio, duracion_min, es_presencial=False):
     lineas = ["Dias disponibles:\n"]
     for i, (_, nombre, display) in enumerate(dias, 1):
         lineas.append(f"{i}. {nombre} {display}")
-    lineas.append("\nEscribe el *numero* del dia.")
+    lineas.append("\nEscribe el *numero* del dia o *cancelar* para salir.")
     return "\n".join(lineas)
 
 def _txt_horas(negocio, fecha, duracion_min, es_presencial=False):
@@ -181,7 +198,7 @@ def _txt_horas(negocio, fecha, duracion_min, es_presencial=False):
     lineas = ["Horas disponibles:\n"]
     for i, h in enumerate(horas, 1):
         lineas.append(f"{i}. {_fmt12(h)}")
-    lineas.append("\nEscribe el *numero* de la hora.")
+    lineas.append("\nEscribe el *numero* de la hora o *cancelar* para salir.")
     return "\n".join(lineas)
 
 
@@ -196,8 +213,9 @@ def _get_estado_cita(numero_cliente):
 def _set_estado_cita(numero_cliente, data):
     execute("""
         INSERT INTO conversaciones_citas
-            (numero_cliente, codigo, estado, servicio_clave, dia, nombre_dia, hora, tipo, lugar)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (numero_cliente, codigo, estado, servicio_clave, dia, nombre_dia, hora, tipo, lugar,
+             cliente_nombre, cliente_email)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (numero_cliente) DO UPDATE SET
             codigo         = EXCLUDED.codigo,
             estado         = EXCLUDED.estado,
@@ -207,6 +225,8 @@ def _set_estado_cita(numero_cliente, data):
             hora           = EXCLUDED.hora,
             tipo           = EXCLUDED.tipo,
             lugar          = EXCLUDED.lugar,
+            cliente_nombre = EXCLUDED.cliente_nombre,
+            cliente_email  = EXCLUDED.cliente_email,
             actualizado_en = NOW()
     """, (
         numero_cliente,
@@ -218,6 +238,8 @@ def _set_estado_cita(numero_cliente, data):
         data.get("hora"),
         data.get("tipo"),
         data.get("lugar"),
+        data.get("cliente_nombre"),
+        data.get("cliente_email"),
     ))
 
 def _del_estado_cita(numero_cliente):
@@ -870,6 +892,48 @@ def _procesar_no_show_negocio(numero_cliente, cita, twilio_send):
     )
 
 
+# ── LBTR ─────────────────────────────────────────────────────────────────────
+
+def _txt_horario_lbtr():
+    return (
+        "\n\n📋 *Horario de Pagos al Instante (LBTR):*\n"
+        "• Lun-vie: 7:00am–4:00pm y 6:30pm–11:00pm\n"
+        "• Sáb, dom y feriados: 7:00am–11:00pm (sin pausa)\n"
+        "• Pausa lun-vie 4:00pm–6:30pm: se acredita al reanudar\n"
+        "• Después de 11:00pm: acredita el próximo día laboral a las 8:00am\n"
+        "• Mismo banco: acreditación inmediata"
+    )
+
+
+def _aviso_lbtr(es_mismo_banco=None):
+    """
+    Retorna aviso post-pago según tipo de transferencia y hora actual en RD.
+    es_mismo_banco=True  → inmediata.
+    es_mismo_banco=False → LBTR interbancaria, aplica horario.
+    es_mismo_banco=None  → tipo desconocido, aplica horario por precaución.
+    """
+    if es_mismo_banco:
+        return "✅ *Transferencia interna:* El pago se acredita al instante."
+
+    now = datetime.now(TZ_RD)
+    h = now.hour * 60 + now.minute
+    es_fin_semana = now.weekday() >= 5
+
+    if h >= 23 * 60 or h < 7 * 60:
+        return (
+            "⚠️ *Aviso LBTR:* Transferencia fuera del horario de operación. "
+            "Se acreditará el próximo día laboral a las *8:00am*."
+        )
+    if not es_fin_semana and 16 * 60 <= h < 18 * 60 + 30:
+        return (
+            "⚠️ *Aviso LBTR:* Transferencia en horario de pausa (lun-vie 4:00pm–6:30pm). "
+            "Se reflejará a partir de las *6:30pm* de hoy."
+        )
+    if es_mismo_banco is False:
+        return "ℹ️ *Pagos al Instante:* Transferencia interbancaria en horario normal — se acredita en máximo *8 minutos*."
+    return None
+
+
 # ── Flujo cliente ─────────────────────────────────────────────────────────────
 
 def tiene_flujo_citas(numero_cliente):
@@ -881,12 +945,18 @@ def tiene_flujo_citas(numero_cliente):
 
 def _msg_confirmacion(estado, servicio, negocio):
     tipo_final = estado.get("tipo")
+    maps_link  = None
     if tipo_final == "online":
         costo_final = negocio.get("costo_online") or servicio["precio"]
         tipo_linea  = "💻 *Online — Google Meet*"
     elif tipo_final == "presencial":
         costo_final = negocio.get("costo_presencial") or servicio["precio"]
         tipo_linea  = f"📍 *{estado['lugar']}*" if estado.get("lugar") else "📍 *Presencial*"
+        maps_link   = next(
+            (_lugar_maps(l) for l in (negocio.get("lugares_reunion") or [])
+             if _lugar_nombre(l) == estado.get("lugar")),
+            None
+        )
     else:
         costo_final = servicio["precio"]
         tipo_linea  = None
@@ -895,7 +965,8 @@ def _msg_confirmacion(estado, servicio, negocio):
     r += f"Negocio:  {negocio['nombre']}\n"
     r += f"Servicio: {servicio['nombre']}\n"
     if tipo_linea:
-        r += f"Tipo:     {tipo_linea}\n"
+        etiqueta = "Lugar:   " if tipo_final == "presencial" else "Tipo:    "
+        r += f"{etiqueta} {tipo_linea}\n"
     r += f"Dia:      {estado['nombre_dia']}\n"
     r += f"Hora:     *{_fmt12(estado['hora'])}*\n"
     if costo_final:
@@ -904,6 +975,8 @@ def _msg_confirmacion(estado, servicio, negocio):
         r += "\nEn breve recibes el enlace de Google Meet por este chat."
         r += "\n\n⚠️ No compartas datos bancarios ni personales durante la videollamada."
     if tipo_final == "presencial":
+        if maps_link:
+            r += f"\n\n📍 *Ver ubicación:* {maps_link}"
         r += "\n\n⚠️ Por tu seguridad avisa a alguien de confianza sobre esta reunion antes de asistir."
     r += f"\n\n¿Necesitas cambiar? Escribe *reagendar {negocio.get('codigo','')}* o *cancelar cita {negocio.get('codigo','')}*"
     r += f"\n¿El negocio no se presenta? Escribe: *no show {negocio.get('codigo','').lower()}*"
@@ -924,14 +997,17 @@ def _procesar_confirmacion(codigo, numero_cliente, estado, servicio, negocio, tw
         estado.get("tipo"), estado.get("lugar"),
     ))
 
-    tipo_txt  = "Online (Google Meet)" if estado.get("tipo") == "online" else "Presencial"
-    lugar_txt = f"\nLugar:    {estado['lugar']}" if estado.get("lugar") else ""
+    tipo_txt  = ("Online (Google Meet)" if estado.get("tipo") == "online"
+                 else "Presencial" if estado.get("tipo") == "presencial"
+                 else None)
+    tipo_linea = f"Tipo:     {tipo_txt}\n" if tipo_txt else ""
+    lugar_txt  = f"Lugar:    {estado['lugar']}\n" if estado.get("lugar") else ""
     twilio_send(
         negocio["numero_negocio"],
         f"NUEVA CITA\n\n"
         f"Servicio: {servicio['nombre']}\n"
-        f"Tipo:     {tipo_txt}"
-        f"{lugar_txt}\n"
+        f"{tipo_linea}"
+        f"{lugar_txt}"
         f"Dia:      {estado['nombre_dia']} — {_fmt12(estado['hora'])}\n"
         f"Cliente:  {numero_cliente}"
     )
@@ -953,9 +1029,13 @@ def _procesar_confirmacion(codigo, numero_cliente, estado, servicio, negocio, tw
                 es_virtual=es_virtual,
             )
             if es_virtual and meet_link:
-                twilio_send(numero_cliente, mensaje_confirmacion_virtual(
+                import time as _time
+                msg1, msg2 = mensaje_confirmacion_virtual(
                     negocio["nombre"], servicio["nombre"], inicio, meet_link
-                ))
+                )
+                twilio_send(numero_cliente, msg1)
+                _time.sleep(1)
+                twilio_send(numero_cliente, msg2)
         except Exception as e:
             print(f"[Google Calendar] Error para {codigo}: {e}")
 
@@ -1003,7 +1083,8 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
                     "¿Qué tipo de asesoría necesitas?\n\n"
                     "1. Online (Google Meet)\n"
                     "2. Presencial\n\n"
-                    "Escribe *1* o *2*.")
+                    "Escribe *1* o *2*.\n"
+                    "Escribe *cancelar* para salir.")
         estado["estado"] = "esperando_servicio"
         _set_estado_cita(numero_cliente, estado)
         return f"Bienvenido a {negocio['nombre']}!\n\n" + _txt_servicios(negocio)
@@ -1019,15 +1100,16 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
             _set_estado_cita(numero_cliente, estado)
             lineas = ["Elige el lugar de reunion:\n"]
             for i, l in enumerate(lugares, 1):
-                lineas.append(f"{i}. {l}")
+                lineas.append(f"{i}. {_lugar_nombre(l)}")
             lineas.append("\nEscribe el *numero* del lugar.")
+            lineas.append("Escribe *cancelar* para salir.")
             return "\n".join(lineas)
         return "Escribe *1* para Online o *2* para Presencial."
 
     # ── ESPERANDO LUGAR ──
     if s == "esperando_lugar":
         if msg.isdigit() and 1 <= int(msg) <= len(lugares):
-            lugar = lugares[int(msg) - 1]
+            lugar = _lugar_nombre(lugares[int(msg) - 1])
             estado.update({"estado": "esperando_servicio", "lugar": lugar})
             _set_estado_cita(numero_cliente, estado)
             return _txt_servicios(negocio, estado.get("tipo"))
@@ -1120,7 +1202,30 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
         if not elegida:
             return _txt_horas(negocio, fecha, servicio["duracion_minutos"], ep)
 
-        estado.update({"estado": "confirmando", "hora": elegida})
+        estado.update({"estado": "esperando_datos_cliente", "hora": elegida})
+        _set_estado_cita(numero_cliente, estado)
+        return (
+            "Casi listo. Para completar la cita necesito tus datos.\n\n"
+            "Escribe en este formato:\n"
+            "*Nombre:* [tu nombre completo]\n"
+            "*Email:* [tu correo electronico]"
+        )
+
+    # ── ESPERANDO DATOS CLIENTE ──
+    if s == "esperando_datos_cliente" and servicio:
+        nombre = re.search(r"nombre[:\s]+(.+)", mensaje.strip(), re.IGNORECASE)
+        email  = re.search(r"email[:\s]+([\w.+-]+@[\w.-]+\.\w+)", msg, re.IGNORECASE)
+        if not nombre or not email:
+            return (
+                "Por favor escribe tus datos en este formato:\n\n"
+                "*Nombre:* [tu nombre completo]\n"
+                "*Email:* [tu correo electronico]"
+            )
+        estado.update({
+            "estado": "confirmando",
+            "cliente_nombre": nombre.group(1).strip(),
+            "cliente_email":  email.group(1).strip().lower(),
+        })
         _set_estado_cita(numero_cliente, estado)
 
         tipo = estado.get("tipo")
@@ -1133,12 +1238,14 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
 
         r  = "Resumen de tu cita:\n\n"
         r += f"Negocio:  {negocio['nombre']}\n"
+        r += f"Nombre:   {estado['cliente_nombre']}\n"
         r += f"Servicio: {servicio['nombre']}\n"
         r += f"Duracion: {servicio['duracion_minutos']} min\n"
-        r += f"Costo:    *${costo:,} DOP*\n"
+        if costo:
+            r += f"Costo:    *${costo:,} DOP*\n"
         r += f"Dia:      {estado['nombre_dia']}\n"
-        r += f"Hora:     {_fmt12(elegida)}\n"
-        r += "\nEscribe *si* para confirmar o *cancelar* para salir."
+        r += f"Hora:     {_fmt12(estado['hora'])}\n"
+        r += "\nEscribe *si* para continuar o *cancelar* para salir."
         return r
 
     # ── CONFIRMANDO ──
@@ -1150,7 +1257,9 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
         if negocio.get("requiere_comprobante") and negocio.get("instrucciones_pago"):
             estado["estado"] = "esperando_comprobante"
             _set_estado_cita(numero_cliente, estado)
-            return negocio["instrucciones_pago"]
+            return (negocio["instrucciones_pago"]
+                    + _txt_horario_lbtr()
+                    + "\n\nEscribe *cancelar* si no desea continuar.")
 
         meet_link = _procesar_confirmacion(codigo, numero_cliente, estado, servicio, negocio, twilio_send)
         _del_estado_cita(numero_cliente)
@@ -1171,8 +1280,11 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
         else:
             monto_esp = negocio.get("costo_presencial") or servicio["precio"]
 
-        # Validar con IA
-        valido, razon = validar_comprobante(media_url, monto_esp)
+        # Validar con IA (en test_mode siempre válido)
+        if negocio.get("test_mode"):
+            valido, razon, es_mismo_banco = True, "Modo test — validación omitida", None
+        else:
+            valido, razon, es_mismo_banco = validar_comprobante(media_url, monto_esp)
 
         tipo_txt  = "Online (Google Meet)" if tipo_cita == "online" else "Presencial"
         lugar_txt = f"\nLugar:    {estado['lugar']}" if estado.get("lugar") else ""
@@ -1206,19 +1318,23 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
         estado["estado"] = "esperando_confirmacion_negocio"
         _set_estado_cita(numero_cliente, estado)
 
+        aviso_lbtr = _aviso_lbtr(es_mismo_banco)
+        aviso_txt  = f"\n\n{aviso_lbtr}" if aviso_lbtr else ""
+
         twilio_send(
             negocio["numero_negocio"],
             f"💰 PAGO RECIBIDO — {estado_ia}\n\n"
             f"Servicio: {servicio['nombre']}\n"
             f"Tipo:     {tipo_txt}{lugar_txt}\n"
             f"Dia:      {estado['nombre_dia']} — {_fmt12(estado['hora'])}\n"
-            f"Cliente:  {numero_cliente}\n\n"
+            f"Cliente:  {numero_cliente}"
+            f"{aviso_txt}\n\n"
             f"Escribe *confirmar pago {numero_corto}* para aprobar\n"
             f"o *rechazar pago {numero_corto}* si hay problema.",
             media_url=media_url,
         )
         return (
-            "✅ Comprobante recibido. Estamos verificando tu pago.\n\n"
+            f"✅ Comprobante recibido. Estamos verificando tu pago.{aviso_txt}\n\n"
             "Te confirmamos la cita en breve por este mismo chat."
         )
 

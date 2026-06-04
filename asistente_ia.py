@@ -100,10 +100,12 @@ def consultar_ia(codigo, modo, mensaje):
 def validar_comprobante(media_url, monto_esperado, cuenta_ultimos4="0083"):
     """
     Analiza un comprobante de pago con Claude Vision.
-    Retorna (valido: bool, razon: str).
+    Retorna (valido: bool|None, razon: str, es_mismo_banco: bool|None).
+    es_mismo_banco=True  → transferencia interna, acreditación inmediata.
+    es_mismo_banco=False → interbancaria LBTR, sujeta a horario.
+    es_mismo_banco=None  → no se pudo determinar.
     """
     try:
-        # Descargar imagen desde Twilio (requiere auth básica)
         resp = requests.get(
             media_url,
             auth=(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN")),
@@ -118,7 +120,7 @@ def validar_comprobante(media_url, monto_esperado, cuenta_ultimos4="0083"):
         client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=200,
+            max_tokens=250,
             messages=[{
                 "role": "user",
                 "content": [
@@ -145,20 +147,35 @@ def validar_comprobante(media_url, monto_esperado, cuenta_ultimos4="0083"):
                             f"5. NO hay senales de manipulacion digital: pixelacion alrededor "
                             f"de numeros, inconsistencia de fuente en el monto, bordes irregulares "
                             f"en cifras, o numeros con tamano/color diferente al resto del texto\n\n"
+                            f"Tambien determina si es una transferencia del MISMO BANCO (interna) "
+                            f"o INTERBANCARIA (LBTR entre bancos distintos). "
+                            f"Las transferencias internas no dicen 'LBTR' y el banco emisor y receptor son el mismo.\n\n"
                             f"Responde SOLO en este formato:\n"
                             f"VALIDO o INVALIDO\n"
-                            f"Razon: [explica brevemente en español, menciona cual criterio fallo si aplica]"
+                            f"Razon: [explica brevemente en español, menciona cual criterio fallo si aplica]\n"
+                            f"Tipo: mismo_banco o interbancaria o desconocido"
                         ),
                     },
                 ],
             }],
         )
 
-        texto = response.content[0].text.strip()
+        texto  = response.content[0].text.strip()
         valido = texto.upper().startswith("VALIDO")
-        razon  = texto.split("Razon:")[-1].strip() if "Razon:" in texto else texto
-        return valido, razon
+        razon  = texto.split("Razon:")[-1].split("Tipo:")[0].strip() if "Razon:" in texto else texto
+
+        tipo_raw = ""
+        if "Tipo:" in texto:
+            tipo_raw = texto.split("Tipo:")[-1].strip().lower()
+        if "mismo_banco" in tipo_raw or "mismo banco" in tipo_raw:
+            es_mismo_banco = True
+        elif "interbancaria" in tipo_raw:
+            es_mismo_banco = False
+        else:
+            es_mismo_banco = None
+
+        return valido, razon, es_mismo_banco
 
     except Exception as e:
         print(f"[validar_comprobante] Error: {e}")
-        return None, str(e)  # None = no pudo validar, revisar manualmente
+        return None, str(e), None

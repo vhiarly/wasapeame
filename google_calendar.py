@@ -1,6 +1,7 @@
 # google_calendar.py — Wasapeame
 # Integración Google Calendar + Meet para negocios con modo virtual
 # Requiere: google-auth google-auth-oauthlib google-api-python-client
+from __future__ import annotations
 
 import os
 import uuid
@@ -46,7 +47,7 @@ SCOPES = [
 def get_conn():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
-def get_google_tokens(codigo: str) -> dict | None:
+def get_google_tokens(codigo: str):
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -174,7 +175,7 @@ def crear_cita_con_meet(
     es_virtual=True  → agrega Meet, devuelve hangoutLink.
     es_virtual=False → evento normal sin Meet, devuelve None.
     """
-    creds   = get_valid_credentials(negocio_id)
+    creds   = get_valid_credentials(codigo)
     service = build("calendar", "v3", credentials=creds, cache_discovery=False)
 
     fin = inicio + timedelta(minutes=duracion_minutos)
@@ -244,11 +245,15 @@ def mensaje_confirmacion_virtual(
     fecha_str = f"{DIAS_ES[inicio.weekday()]} {inicio.day} de {MESES_ES[inicio.month-1]} {inicio.year}"
     hora_str  = inicio.strftime("%I:%M %p")
 
-    return (
+    confirmacion = (
         f"✅ *Cita confirmada con {nombre_negocio}*\n\n"
         f"📋 Servicio: {servicio}\n"
         f"📅 Fecha: {fecha_str}\n"
         f"🕐 Hora: {hora_str}\n\n"
-        f"🎥 *Tu enlace de videollamada:*\n{hangout_link}\n\n"
+        f"🎥 En breve recibes el enlace de Google Meet."
+    )
+    link_msg = (
+        f"*Tu enlace de videollamada:*\n{hangout_link}\n\n"
         f"_Solo toca el enlace a la hora de tu cita. No necesitas cuenta de Google._"
     )
+    return confirmacion, link_msg
