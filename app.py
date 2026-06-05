@@ -131,6 +131,15 @@ iniciar_recordatorios(twilio_send)
 
 LIMITE_MSG = 1500
 
+def _msg_perdido():
+    return (
+        "No entendí tu mensaje. ¿Qué necesitas?\n\n"
+        "1. Hacer un pedido\n"
+        "2. Agendar una cita\n"
+        "3. Hablar con un negocio\n\n"
+        "Escribe el número de tu opción o el *código del negocio* directamente."
+    )
+
 def _responder(twiml_msg, texto, numero):
     """Envía texto largo en partes; la última va por TwiML, las demás por twilio_send."""
     if len(texto) <= LIMITE_MSG:
@@ -240,6 +249,8 @@ def webhook():
                 detener_timer(numero_cliente)
         if respuesta:
             _responder(msg, respuesta, numero_cliente)
+        else:
+            msg.body(_msg_perdido())
         return str(resp)
 
     # ── SIN CÓDIGO ──
@@ -254,7 +265,18 @@ def webhook():
         )
         return str(resp)
 
-    msg.body("🔑 Escribe el *código del negocio* para continuar.\n📲 Si no lo tienes, pídelo al negocio.")
+    # Respuestas al menú de orientación
+    if mensaje_lower.strip() == "1":
+        msg.body("Para hacer un pedido escribe el *código del negocio*.\nEjemplo: *CO1*\n\n📲 Si no lo tienes, pídelo al negocio.")
+        return str(resp)
+    if mensaje_lower.strip() == "2":
+        msg.body("Para agendar una cita escribe el *código del negocio*.\nEjemplo: *SE1*\n\n📲 Si no lo tienes, pídelo al negocio.")
+        return str(resp)
+    if mensaje_lower.strip() == "3":
+        msg.body("Escribe el *código del negocio* para conectarte.\n📲 Si no lo tienes, pídelo directamente al negocio.")
+        return str(resp)
+
+    msg.body(_msg_perdido())
     return str(resp)
 
 
