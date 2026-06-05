@@ -108,7 +108,7 @@ def validar_comprobante(media_url, monto_esperado, cuenta_ultimos4="0083"):
     try:
         resp = requests.get(
             media_url,
-            auth=(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN")),
+            headers={"Authorization": f"Bearer {os.getenv('META_ACCESS_TOKEN')}"},
             timeout=15,
         )
         resp.raise_for_status()
