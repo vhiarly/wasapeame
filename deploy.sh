@@ -35,6 +35,11 @@ zip -r "$ZIP" . \
   -x "deploy.sh" \
   -x "tunnel.py" \
   -x "crear-test.js" \
+  -x "limpiar_estado.py" \
+  -x "fix_se2_numero.py" \
+  -x "update_se1_lugares.py" \
+  -x "create_se2_test.py" \
+  -x "test_confirmacion_se1.py" \
   > /dev/null
 ok "Zip creado ($(du -sh $ZIP | cut -f1))"
 
@@ -45,6 +50,7 @@ az webapp deploy \
   --resource-group "$RG" \
   --src-path "$ZIP" \
   --type zip \
+  --timeout 300 \
   --output none
 ok "Deploy completado"
 

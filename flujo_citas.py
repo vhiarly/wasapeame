@@ -1628,8 +1628,8 @@ def manejar_negocio_citas(numero, mensaje, twilio_send,
         return f"Comprobante enviado al cliente."
 
     # ── confirmar pago / rechazar pago ──
-    m_confirmar = re.match(r"confirmar\s+pago\s+(\d+)", msg_low)
-    m_rechazar  = re.match(r"rechazar\s+pago\s+(\d+)", msg_low)
+    m_confirmar = re.match(r"confirmar\s+pago\s+\+?(\d+)", msg_low)
+    m_rechazar  = re.match(r"rechazar\s+pago\s+\+?(\d+)", msg_low)
     if m_confirmar or m_rechazar:
         num_corto   = (m_confirmar or m_rechazar).group(1)
         num_cliente = f"whatsapp:+{num_corto}"
