@@ -21,6 +21,7 @@ init_pool()
 
 execute("DELETE FROM conversaciones_pedidos WHERE timeout_en < NOW()")
 execute("CREATE TABLE IF NOT EXISTS clientes_vistos (numero TEXT PRIMARY KEY)")
+execute("CREATE TABLE IF NOT EXISTS clientes (numero TEXT PRIMARY KEY, nombre TEXT, email TEXT)")
 
 app = Flask(__name__)
 app.register_blueprint(oauth_bp, url_prefix='/oauth')

@@ -246,6 +246,19 @@ def _del_estado_cita(numero_cliente):
     execute("DELETE FROM conversaciones_citas WHERE numero_cliente = %s", (numero_cliente,))
 
 
+def _get_datos_cliente(numero):
+    return execute(
+        "SELECT nombre, email FROM clientes WHERE numero = %s",
+        (numero,), fetch="one"
+    )
+
+def _guardar_datos_cliente(numero, nombre, email):
+    execute("""
+        INSERT INTO clientes (numero, nombre, email) VALUES (%s, %s, %s)
+        ON CONFLICT (numero) DO UPDATE SET nombre = EXCLUDED.nombre, email = EXCLUDED.email
+    """, (numero, nombre, email))
+
+
 # ── Helpers de relay ──────────────────────────────────────────────────────────
 
 def _get_relay(numero_cliente):
@@ -1219,6 +1232,23 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
         if not elegida:
             return _txt_horas(negocio, fecha, servicio["duracion_minutos"], ep)
 
+        datos = _get_datos_cliente(numero_cliente)
+        if datos:
+            estado.update({
+                "estado": "verificando_datos",
+                "hora": elegida,
+                "cliente_nombre": datos["nombre"],
+                "cliente_email": datos["email"],
+            })
+            _set_estado_cita(numero_cliente, estado)
+            return (
+                f"Usamos tus datos anteriores:\n\n"
+                f"Nombre: {datos['nombre']}\n"
+                f"Email:  {datos['email']}\n\n"
+                "1. Confirmar\n"
+                "2. Corregir nombre\n"
+                "3. Corregir email"
+            )
         estado.update({"estado": "esperando_nombre", "hora": elegida})
         _set_estado_cita(numero_cliente, estado)
         return "¿Cómo te llamas?"
@@ -1264,7 +1294,8 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
                 "2. Corregir nombre\n"
                 "3. Corregir email"
             )
-        # Datos confirmados → mostrar resumen de cita
+        # Datos confirmados → guardar para futuras citas y mostrar resumen
+        _guardar_datos_cliente(numero_cliente, estado["cliente_nombre"], estado["cliente_email"])
         estado["estado"] = "confirmando"
         _set_estado_cita(numero_cliente, estado)
 
