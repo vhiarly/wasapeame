@@ -315,7 +315,7 @@ def cerrar_relay_timeout(numero_cliente, twilio_send):
     )
 
 
-def manejar_relay_mensaje(numero, mensaje, media_url, twilio_send,
+def manejar_relay_mensaje(numero, mensaje, media_id, twilio_send,
                            iniciar_timer_relay, cancelar_timer_relay):
     """
     Intercepta mensajes que pertenecen a una sesión relay activa.
@@ -515,7 +515,7 @@ def manejar_relay_mensaje(numero, mensaje, media_url, twilio_send,
 
         # Reenviar mensaje del cliente a Pilar
         twilio_send(relay["numero_negocio"],
-            f"Cliente: {mensaje}", media_url=media_url)
+            f"Cliente: {mensaje}", media_id=media_id)
         return ""  # no responder al cliente
 
     # ── Caso 1b: Cliente en esperando_resolucion_cliente ──
@@ -581,7 +581,7 @@ def manejar_relay_mensaje(numero, mensaje, media_url, twilio_send,
         # Buscar si es un reenvío (mensaje normal durante relay)
         for r in relays_negocio:
             if r["estado"] == "activo" and not re.match(r"cerrar\s+chat\s+\d+", msg_low):
-                twilio_send(r["numero_cliente"], mensaje, media_url=media_url)
+                twilio_send(r["numero_cliente"], mensaje, media_id=media_id)
         return None  # Dejar que el flujo normal del negocio también procese sus comandos
 
     return None  # No aplica relay
@@ -1059,7 +1059,7 @@ def _procesar_confirmacion(codigo, numero_cliente, estado, servicio, negocio, tw
     return meet_link
 
 
-def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
+def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
     msg = mensaje.strip().lower()
 
     estado = _get_estado_cita(numero_cliente)
@@ -1309,7 +1309,7 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
 
     # ── ESPERANDO COMPROBANTE ──
     if s == "esperando_comprobante" and servicio:
-        if not media_url:
+        if not media_id:
             return (
                 negocio.get("instrucciones_pago", "") +
                 "\n\nAun no hemos recibido tu comprobante. *Envia la foto* por este chat."
@@ -1327,7 +1327,7 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
         if negocio.get("test_mode"):
             valido, razon, es_mismo_banco = True, "Modo test — validación omitida", None
         else:
-            valido, razon, es_mismo_banco = validar_comprobante(media_url, monto_esp)
+            valido, razon, es_mismo_banco = validar_comprobante(media_id, monto_esp)
 
         tipo_txt  = "Online (Google Meet)" if tipo_cita == "online" else "Presencial"
         lugar_txt = f"\nLugar:    {estado['lugar']}" if estado.get("lugar") else ""
@@ -1345,7 +1345,7 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
                 f"Cliente:  {numero_cliente}\n"
                 f"Razon IA: {razon}\n\n"
                 f"Si crees que es un error escribe: confirmar pago {numero_corto}",
-                media_url=media_url,
+                media_id=media_id,
             )
             return (
                 "No pudimos validar tu comprobante. Verifica que:\n\n"
@@ -1374,7 +1374,7 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
             f"{aviso_txt}\n\n"
             f"Escribe *confirmar pago {numero_corto}* para aprobar\n"
             f"o *rechazar pago {numero_corto}* si hay problema.",
-            media_url=media_url,
+            media_id=media_id,
         )
         return (
             f"✅ Comprobante recibido. Estamos verificando tu pago.{aviso_txt}\n\n"
@@ -1387,7 +1387,7 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
 # ── Flujo negocio ─────────────────────────────────────────────────────────────
 
 def manejar_negocio_citas(numero, mensaje, twilio_send,
-                           iniciar_timer_relay=None, cancelar_timer_relay=None):
+                           media_id=None, iniciar_timer_relay=None, cancelar_timer_relay=None):
     msg     = mensaje.strip()
     msg_low = msg.lower()
 
@@ -1587,12 +1587,12 @@ def manejar_negocio_citas(numero, mensaje, twilio_send,
     m_comp = re.match(r"comprobante\s+reembolso\s+(\d+)", msg_low)
     if m_comp:
         num_cliente = f"whatsapp:+{m_comp.group(1)}"
-        if not media_url:
+        if not media_id:
             return "Adjunta la foto del comprobante de reembolso con el mensaje."
         twilio_send(
             num_cliente,
             "✅ Tu reembolso fue procesado. Aquí está el comprobante de la transferencia.",
-            media_url=media_url,
+            media_id=media_id,
         )
         return f"Comprobante enviado al cliente."
 

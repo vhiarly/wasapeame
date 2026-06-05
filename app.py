@@ -9,7 +9,9 @@ from dotenv import load_dotenv
 from db import init_pool, execute
 from negocio_router import detectar_codigo, obtener_negocio, es_numero_negocio
 from flujo_pedidos import manejar_pedido, manejar_negocio, tiene_flujo_activo, limpiar_flujo, cancelar_timeout
-from flujo_citas import manejar_cita, manejar_negocio_citas, tiene_flujo_citas, tiene_sesion_admin_citas, iniciar_recordatorios
+from flujo_citas import (manejar_cita, manejar_negocio_citas, tiene_flujo_citas,
+                         tiene_sesion_admin_citas, iniciar_recordatorios,
+                         manejar_relay_mensaje, cerrar_relay_timeout)
 from flujo_registro import manejar_registro, iniciar_registro, tiene_flujo_registro
 from asistente_ia import consultar_ia, respuesta_ayuda
 from oauth_routes import oauth_bp
@@ -18,13 +20,16 @@ load_dotenv()
 init_pool()
 
 execute("DELETE FROM conversaciones_pedidos WHERE timeout_en < NOW()")
+execute("CREATE TABLE IF NOT EXISTS clientes_vistos (numero TEXT PRIMARY KEY)")
 
 app = Flask(__name__)
 app.register_blueprint(oauth_bp, url_prefix='/oauth')
 
+
 @app.route("/ping")
 def ping():
     return "¡El servidor está vivo!", 200
+
 
 @app.after_request
 def log_response(response):
@@ -39,19 +44,19 @@ META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
 META_VERIFY_TOKEN    = os.getenv("META_VERIFY_TOKEN", "wasapeame_verify_2026")
 
 
-def meta_send(to, body, media_url=None):
+def meta_send(to, body, media_id=None):
     phone = to.replace("whatsapp:+", "").replace("+", "").strip()
     url = f"https://graph.facebook.com/v19.0/{META_PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {META_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
-    if media_url:
+    if media_id:
         payload = {
             "messaging_product": "whatsapp",
             "to": phone,
             "type": "image",
-            "image": {"link": media_url, "caption": body or ""}
+            "image": {"id": media_id, "caption": body or ""}
         }
     else:
         payload = {
@@ -67,17 +72,16 @@ def meta_send(to, body, media_url=None):
         print(f"[META] Error enviando a {to}: {e}")
 
 
-def _get_meta_media_url(media_id):
-    url = f"https://graph.facebook.com/v19.0/{media_id}"
-    headers = {"Authorization": f"Bearer {META_ACCESS_TOKEN}"}
-    resp = http_requests.get(url, headers=headers, timeout=10)
-    resp.raise_for_status()
-    return resp.json()["url"]
+
+timers       = {}
+timers_relay = {}
 
 
-timers           = {}
-timers_relay     = {}
-_clientes_vistos = set()
+def _ya_conocido(numero):
+    if execute("SELECT 1 FROM clientes_vistos WHERE numero = %s", (numero,), fetch="one"):
+        return True
+    execute("INSERT INTO clientes_vistos (numero) VALUES (%s) ON CONFLICT DO NOTHING", (numero,))
+    return False
 
 TIMEOUT_SEGUNDOS = 180
 RELAY_SEGUNDOS   = 1800
@@ -128,7 +132,6 @@ def reiniciar_timer(numero_cliente):
 
 
 def cerrar_relay_por_timeout(numero_cliente):
-    from flujo_citas import cerrar_relay_timeout
     timers_relay.pop(numero_cliente, None)
     cerrar_relay_timeout(numero_cliente, meta_send)
 
@@ -184,166 +187,169 @@ def _enviar(texto, numero):
         time.sleep(1)
 
 
-@app.route("/webhook", methods=["GET"])
-def webhook_verify():
-    mode      = request.args.get("hub.mode")
-    token     = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge")
-    if mode == "subscribe" and token == META_VERIFY_TOKEN:
-        return challenge, 200
-    return "Forbidden", 403
-
-
-@app.route("/webhook", methods=["POST"])
+# ── ÚNICO webhook ──────────────────────────────────────────────────────────────
+@app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-    data = request.get_json(silent=True) or {}
+    # Verificación del webhook de Meta
+    if request.method == "GET":
+        if request.args.get("hub.verify_token") == META_VERIFY_TOKEN:
+            return request.args.get("hub.challenge"), 200
+        return "Token incorrecto", 403
 
+    # POST — procesar mensaje entrante
     try:
-        entry   = data["entry"][0]["changes"][0]["value"]
-        msgs    = entry.get("messages", [])
-        if not msgs:
+        data = request.get_json(silent=True) or {}
+
+        # Extraer mensaje de la estructura de Meta Cloud API
+        try:
+            entry   = data["entry"][0]
+            changes = entry["changes"][0]["value"]
+            msgs    = changes.get("messages", [])
+            if not msgs:
+                return jsonify({"status": "ok"}), 200
+            msg_obj        = msgs[0]
+            numero_cliente = "+" + msg_obj["from"]
+            msg_type       = msg_obj.get("type", "text")
+
+            if msg_type == "text":
+                body_raw = msg_obj["text"]["body"]
+                media_id = None
+            elif msg_type == "image":
+                media_id = msg_obj["image"]["id"]
+                body_raw = msg_obj["image"].get("caption", "")
+            else:
+                # Tipo no soportado (audio, sticker, etc.) — ignorar silenciosamente
+                return jsonify({"status": "ok"}), 200
+        except (KeyError, IndexError):
             return jsonify({"status": "ok"}), 200
-        message = msgs[0]
-        numero_cliente = "whatsapp:+" + message["from"]
-        msg_type       = message.get("type", "text")
 
-        if msg_type == "text":
-            body_raw  = message["text"]["body"]
-            media_url = None
-        elif msg_type == "image":
-            media_id  = message["image"]["id"]
-            media_url = _get_meta_media_url(media_id)
-            body_raw  = message["image"].get("caption", "")
-        elif msg_type == "document":
-            media_id  = message["document"]["id"]
-            media_url = _get_meta_media_url(media_id)
-            body_raw  = message["document"].get("caption", "")
-        else:
-            body_raw  = ""
-            media_url = None
-    except (KeyError, IndexError, TypeError):
-        return jsonify({"status": "ok"}), 200
+        # Normalizar texto
+        _raw          = unicodedata.normalize("NFKC", body_raw)
+        _raw          = re.sub(r"[*_~`]", "", _raw)
+        _raw          = re.sub(r"\s+", " ", _raw).strip()
+        mensaje       = _raw
+        mensaje_lower = mensaje.lower().strip()
 
-    _raw          = unicodedata.normalize("NFKC", body_raw)
-    _raw          = re.sub(r"[*_~`]", "", _raw)
-    _raw          = re.sub(r"\s+", " ", _raw).strip()
-    mensaje       = _raw
-    mensaje_lower = mensaje.lower().strip()
+        print(f"[IN]  {numero_cliente}: {mensaje!r}")
+        g.numero_cliente = numero_cliente
 
-    print(f"[IN]  {numero_cliente}: {mensaje!r}")
-    g.numero_cliente = numero_cliente
+        # ── RELAY ──
+        relay_resp = manejar_relay_mensaje(numero_cliente, mensaje, media_id, meta_send,
+                                           iniciar_timer_relay, cancelar_timer_relay)
+        if relay_resp is not None:
+            if relay_resp:
+                meta_send(numero_cliente, relay_resp)
+            return jsonify({"status": "ok"}), 200
 
-    # ── RELAY ──
-    from flujo_citas import manejar_relay_mensaje
-    relay_resp = manejar_relay_mensaje(numero_cliente, mensaje, media_url, meta_send,
-                                       iniciar_timer_relay, cancelar_timer_relay)
-    if relay_resp is not None:
-        if relay_resp:
-            meta_send(numero_cliente, relay_resp)
-        return jsonify({"status": "ok"}), 200
+        # ── MENSAJES DE NEGOCIOS DEL ROUTER ──
+        codigo_emisor = es_numero_negocio(numero_cliente)
+        if codigo_emisor:
+            neg_emisor  = obtener_negocio(codigo_emisor)
+            modo_emisor = neg_emisor.get("modo") if neg_emisor else "pedidos"
+            codigo_en_msg, _ = detectar_codigo(mensaje)
 
-    # ── MENSAJES DE NEGOCIOS DEL ROUTER ──
-    codigo_emisor = es_numero_negocio(numero_cliente)
-    if codigo_emisor:
-        neg_emisor  = obtener_negocio(codigo_emisor)
-        modo_emisor = neg_emisor.get("modo") if neg_emisor else "pedidos"
-        codigo_en_msg, _ = detectar_codigo(mensaje)
+            es_admin_pin_citas = (
+                (re.match(r"^admin\s+", mensaje_lower) and modo_emisor != "citas")
+                or (modo_emisor != "citas" and tiene_sesion_admin_citas(numero_cliente))
+            )
+            if not codigo_en_msg and _es_comando_negocio(mensaje_lower, modo_emisor) and not es_admin_pin_citas:
+                if mensaje_lower.strip() == "ayuda":
+                    meta_send(numero_cliente, respuesta_ayuda(modo_emisor))
+                    return jsonify({"status": "ok"}), 200
 
-        es_admin_pin_citas = (
-            (re.match(r"^admin\s+", mensaje_lower) and modo_emisor != "citas")
-            or (modo_emisor != "citas" and tiene_sesion_admin_citas(numero_cliente))
-        )
-        if not codigo_en_msg and _es_comando_negocio(mensaje_lower, modo_emisor) and not es_admin_pin_citas:
-            if mensaje_lower.strip() == "ayuda":
-                meta_send(numero_cliente, respuesta_ayuda(modo_emisor))
+                if modo_emisor == "citas":
+                    resultado = manejar_negocio_citas(numero_cliente, mensaje, meta_send)
+                else:
+                    resultado = manejar_negocio(numero_cliente, codigo_emisor, mensaje, meta_send)
+
+                if resultado is None:
+                    resultado = consultar_ia(codigo_emisor, modo_emisor, mensaje)
+
+                if resultado:
+                    _enviar(resultado, numero_cliente)
                 return jsonify({"status": "ok"}), 200
 
-            if modo_emisor == "citas":
-                resultado = manejar_negocio_citas(numero_cliente, mensaje, meta_send)
-            else:
-                resultado = manejar_negocio(numero_cliente, codigo_emisor, mensaje, meta_send)
-
-            if resultado is None:
-                resultado = consultar_ia(codigo_emisor, modo_emisor, mensaje)
-
+        # ── ADMIN CITAS ──
+        if re.match(r"^admin\s+", mensaje_lower) or tiene_sesion_admin_citas(numero_cliente):
+            if mensaje_lower.strip() == "ayuda":
+                meta_send(numero_cliente, respuesta_ayuda("citas"))
+                return jsonify({"status": "ok"}), 200
+            resultado = manejar_negocio_citas(numero_cliente, mensaje, meta_send,
+                                              media_id=media_id,
+                                              iniciar_timer_relay=iniciar_timer_relay,
+                                              cancelar_timer_relay=cancelar_timer_relay)
             if resultado:
                 _enviar(resultado, numero_cliente)
             return jsonify({"status": "ok"}), 200
 
-    # ── ADMIN CITAS ──
-    if re.match(r"^admin\s+", mensaje_lower) or tiene_sesion_admin_citas(numero_cliente):
-        if mensaje_lower.strip() == "ayuda":
-            meta_send(numero_cliente, respuesta_ayuda("citas"))
+        # ── FLUJO REGISTRO ──
+        if tiene_flujo_registro(numero_cliente):
+            resultado = manejar_registro(numero_cliente, mensaje, meta_send)
+            if resultado:
+                meta_send(numero_cliente, resultado)
             return jsonify({"status": "ok"}), 200
-        resultado = manejar_negocio_citas(numero_cliente, mensaje, meta_send,
-                                          iniciar_timer_relay=iniciar_timer_relay,
-                                          cancelar_timer_relay=cancelar_timer_relay)
-        if resultado:
-            _enviar(resultado, numero_cliente)
-        return jsonify({"status": "ok"}), 200
 
-    # ── FLUJO REGISTRO ──
-    if tiene_flujo_registro(numero_cliente):
-        resultado = manejar_registro(numero_cliente, mensaje, meta_send)
-        if resultado:
-            meta_send(numero_cliente, resultado)
-        return jsonify({"status": "ok"}), 200
-
-    # ── ROUTER DE NEGOCIOS (clientes) ──
-    codigo, resto = detectar_codigo(mensaje)
-    if codigo or tiene_flujo_activo(numero_cliente) or tiene_flujo_citas(numero_cliente):
-        msg_flujo = resto if codigo else mensaje
-        if codigo:
-            neg_tmp = obtener_negocio(codigo)
-            modo = neg_tmp.get("modo") if neg_tmp else "pedidos"
-        else:
-            modo = "citas" if tiene_flujo_citas(numero_cliente) else "pedidos"
-        if modo == "citas":
-            respuesta = manejar_cita(numero_cliente, codigo, msg_flujo, meta_send, media_url=media_url)
-        else:
-            respuesta = manejar_pedido(numero_cliente, codigo, msg_flujo, meta_send, media_url=media_url)
-            if tiene_flujo_activo(numero_cliente):
-                reiniciar_timer(numero_cliente)
+        # ── ROUTER DE NEGOCIOS (clientes) ──
+        codigo, resto = detectar_codigo(mensaje)
+        if codigo or tiene_flujo_activo(numero_cliente) or tiene_flujo_citas(numero_cliente):
+            msg_flujo = resto if codigo else mensaje
+            if codigo:
+                neg_tmp = obtener_negocio(codigo)
+                modo = neg_tmp.get("modo") if neg_tmp else "pedidos"
             else:
-                detener_timer(numero_cliente)
-        if respuesta:
-            _enviar(respuesta, numero_cliente)
-        else:
-            meta_send(numero_cliente, _msg_perdido())
+                modo = "citas" if tiene_flujo_citas(numero_cliente) else "pedidos"
+
+            if modo == "citas":
+                respuesta = manejar_cita(numero_cliente, codigo, msg_flujo, meta_send, media_id=media_id)
+            else:
+                respuesta = manejar_pedido(numero_cliente, codigo, msg_flujo, meta_send, media_id=media_id)
+                if tiene_flujo_activo(numero_cliente):
+                    reiniciar_timer(numero_cliente)
+                else:
+                    detener_timer(numero_cliente)
+
+            if respuesta:
+                _enviar(respuesta, numero_cliente)
+            else:
+                meta_send(numero_cliente, _msg_perdido())
+            return jsonify({"status": "ok"}), 200
+
+        # ── SIN CÓDIGO ──
+        if not _ya_conocido(numero_cliente):
+            meta_send(numero_cliente,
+                "Bienvenido a *Wasapeame* 👋\n\n"
+                "Conecta con tu negocio favorito directo desde WhatsApp.\n"
+                "🛒 Pedidos  |  📅 Citas  |  💬 Consultas\n\n"
+                "🔑 Escribe el *código del negocio* para comenzar.\n"
+                "📲 Si no lo tienes, pídelo al negocio.\n\n"
+                "¿Tienes un negocio y quieres unirte?\n"
+                "Escribe *4* para registrarte.")
+            return jsonify({"status": "ok"}), 200
+
+        # Respuestas al menú de orientación
+        if mensaje_lower == "1":
+            meta_send(numero_cliente, "Para hacer un pedido escribe el *código del negocio*.\nEjemplo: *CO1*\n\n📲 Si no lo tienes, pídelo al negocio.")
+            return jsonify({"status": "ok"}), 200
+        if mensaje_lower == "2":
+            meta_send(numero_cliente, "Para agendar una cita escribe el *código del negocio*.\nEjemplo: *SE1*\n\n📲 Si no lo tienes, pídelo al negocio.")
+            return jsonify({"status": "ok"}), 200
+        if mensaje_lower == "3":
+            meta_send(numero_cliente, "Escribe el *código del negocio* para conectarte.\n📲 Si no lo tienes, pídelo directamente al negocio.")
+            return jsonify({"status": "ok"}), 200
+        if mensaje_lower == "4":
+            resultado = iniciar_registro(numero_cliente, meta_send)
+            meta_send(numero_cliente, resultado)
+            return jsonify({"status": "ok"}), 200
+
+        meta_send(numero_cliente, _msg_perdido())
         return jsonify({"status": "ok"}), 200
 
-    # ── SIN CÓDIGO ──
-    if numero_cliente not in _clientes_vistos:
-        _clientes_vistos.add(numero_cliente)
-        meta_send(numero_cliente,
-            "Bienvenido a *Wasapeame* 👋\n\n"
-            "Conecta con tu negocio favorito directo desde WhatsApp.\n"
-            "🛒 Pedidos  |  📅 Citas  |  💬 Consultas\n\n"
-            "🔑 Escribe el *código del negocio* para comenzar.\n"
-            "📲 Si no lo tienes, pídelo al negocio.\n\n"
-            "¿Tienes un negocio y quieres unirte?\n"
-            "Escribe *4* para registrarte.")
-        return jsonify({"status": "ok"}), 200
-
-    # Respuestas al menú de orientación
-    if mensaje_lower.strip() == "1":
-        meta_send(numero_cliente, "Para hacer un pedido escribe el *código del negocio*.\nEjemplo: *CO1*\n\n📲 Si no lo tienes, pídelo al negocio.")
-        return jsonify({"status": "ok"}), 200
-    if mensaje_lower.strip() == "2":
-        meta_send(numero_cliente, "Para agendar una cita escribe el *código del negocio*.\nEjemplo: *SE1*\n\n📲 Si no lo tienes, pídelo al negocio.")
-        return jsonify({"status": "ok"}), 200
-    if mensaje_lower.strip() == "3":
-        meta_send(numero_cliente, "Escribe el *código del negocio* para conectarte.\n📲 Si no lo tienes, pídelo directamente al negocio.")
-        return jsonify({"status": "ok"}), 200
-    if mensaje_lower.strip() == "4":
-        resultado = iniciar_registro(numero_cliente, meta_send)
-        meta_send(numero_cliente, resultado)
-        return jsonify({"status": "ok"}), 200
-
-    meta_send(numero_cliente, _msg_perdido())
-    return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        print(f"[ERROR] webhook: {e}")
+        return jsonify({"status": "error", "message": "Fallo en procesamiento"}), 200
 
 
+# ── Rutas web ──────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
     return render_template("index.html")

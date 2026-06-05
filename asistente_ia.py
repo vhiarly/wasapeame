@@ -97,7 +97,7 @@ def consultar_ia(codigo, modo, mensaje):
         return "No pude procesar tu mensaje. Escribe ayuda para ver los comandos disponibles."
 
 
-def validar_comprobante(media_url, monto_esperado, cuenta_ultimos4="0083"):
+def validar_comprobante(media_id, monto_esperado, cuenta_ultimos4="0083"):
     """
     Analiza un comprobante de pago con Claude Vision.
     Retorna (valido: bool|None, razon: str, es_mismo_banco: bool|None).
@@ -106,9 +106,18 @@ def validar_comprobante(media_url, monto_esperado, cuenta_ultimos4="0083"):
     es_mismo_banco=None  → no se pudo determinar.
     """
     try:
+        token = os.getenv("META_ACCESS_TOKEN")
+        url_resp = requests.get(
+            f"https://graph.facebook.com/v19.0/{media_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        url_resp.raise_for_status()
+        media_url = url_resp.json()["url"]
+
         resp = requests.get(
             media_url,
-            headers={"Authorization": f"Bearer {os.getenv('META_ACCESS_TOKEN')}"},
+            headers={"Authorization": f"Bearer {token}"},
             timeout=15,
         )
         resp.raise_for_status()

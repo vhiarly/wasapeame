@@ -425,7 +425,7 @@ def cancelar_timeout(numero_cliente, twilio_send):
         _del_estado(numero_cliente)
 
 
-def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
+def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
     msg = _norm(mensaje)
 
     estado = _get_estado(numero_cliente)
@@ -794,7 +794,7 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_url=None)
 
     # ── ESPERANDO COMPROBANTE ──
     if s == "esperando_comprobante":
-        if not media_url:
+        if not media_id:
             instrucciones = negocio.get("instrucciones_pago", "")
             return (f"Aun no hemos recibido tu comprobante.\n\n"
                     f"Realiza la transferencia a:\n\n{instrucciones}\n\n"
@@ -807,7 +807,7 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_url=None)
         txt += f"\n\nTotal: ${sum(i['precio'] for i in items):.0f} pesos"
         txt += f"\nDireccion: {estado['direccion']}"
         txt += f"\nReferencia: {estado['referencia']}"
-        twilio_send(negocio["numero_negocio"], txt, media_url=media_url)
+        twilio_send(negocio["numero_negocio"], txt, media_id=media_id)
 
         estado["estado"] = "pedido_enviado"
         _set_estado(numero_cliente, estado)
