@@ -1231,7 +1231,10 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
 
     # ── ESPERANDO EMAIL ──
     if s == "esperando_email":
-        estado.update({"estado": "verificando_datos", "cliente_email": mensaje.strip().lower()})
+        email_raw = mensaje.strip().lower()
+        if "@" not in email_raw or "." not in email_raw.split("@")[-1]:
+            return "Ese correo no parece válido. Escríbelo de nuevo.\nEjemplo: nombre@gmail.com"
+        estado.update({"estado": "verificando_datos", "cliente_email": email_raw})
         _set_estado_cita(numero_cliente, estado)
         return (
             f"Confirma tus datos:\n\n"
@@ -1307,8 +1310,11 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
     # ── ESPERANDO COMPROBANTE ──
     if s == "esperando_comprobante" and servicio:
         if not media_url:
-            return (negocio.get("instrucciones_pago", "") +
-                    "\n\nAun no hemos recibido tu comprobante. *Envia la foto* por este chat.")
+            return (
+                negocio.get("instrucciones_pago", "") +
+                "\n\nAun no hemos recibido tu comprobante. *Envia la foto* por este chat."
+                "\n\nSi no vas a pagar ahora escribe *cancelar* para salir y volver a empezar cuando quieras."
+            )
 
         # Determinar monto esperado según tipo
         tipo_cita = estado.get("tipo")
