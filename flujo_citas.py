@@ -1021,7 +1021,7 @@ def _procesar_confirmacion(codigo, numero_cliente, estado, servicio, negocio, tw
             inicio = datetime.combine(fecha_dt, dtime(h, m))
             meet_link = crear_cita_con_meet(
                 codigo=codigo,
-                nombre_cliente=numero_cliente,
+                nombre_cliente=estado.get("cliente_nombre") or numero_cliente,
                 servicio=servicio["nombre"],
                 inicio=inicio,
                 duracion_minutos=servicio["duracion_minutos"],
@@ -1202,30 +1202,50 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_url=None):
         if not elegida:
             return _txt_horas(negocio, fecha, servicio["duracion_minutos"], ep)
 
-        estado.update({"estado": "esperando_datos_cliente", "hora": elegida})
+        estado.update({"estado": "esperando_nombre", "hora": elegida})
+        _set_estado_cita(numero_cliente, estado)
+        return "¿Cómo te llamas?"
+
+    # ── ESPERANDO NOMBRE ──
+    if s == "esperando_nombre":
+        estado.update({"estado": "esperando_email", "cliente_nombre": mensaje.strip()})
+        _set_estado_cita(numero_cliente, estado)
+        return "¿Cuál es tu correo electrónico?"
+
+    # ── ESPERANDO EMAIL ──
+    if s == "esperando_email":
+        estado.update({"estado": "verificando_datos", "cliente_email": mensaje.strip().lower()})
         _set_estado_cita(numero_cliente, estado)
         return (
-            "Casi listo. Para completar la cita necesito tus datos.\n\n"
-            "Escribe en este formato:\n"
-            "*Nombre:* [tu nombre completo]\n"
-            "*Email:* [tu correo electronico]"
+            f"Confirma tus datos:\n\n"
+            f"Nombre: {estado['cliente_nombre']}\n"
+            f"Email:  {estado['cliente_email']}\n\n"
+            "1. Confirmar\n"
+            "2. Corregir nombre\n"
+            "3. Corregir email"
         )
 
-    # ── ESPERANDO DATOS CLIENTE ──
-    if s == "esperando_datos_cliente" and servicio:
-        nombre = re.search(r"nombre[:\s]+(.+)", mensaje.strip(), re.IGNORECASE)
-        email  = re.search(r"email[:\s]+([\w.+-]+@[\w.-]+\.\w+)", msg, re.IGNORECASE)
-        if not nombre or not email:
+    # ── VERIFICANDO DATOS ──
+    if s == "verificando_datos":
+        if msg.strip() == "2":
+            estado["estado"] = "esperando_nombre"
+            _set_estado_cita(numero_cliente, estado)
+            return "¿Cómo te llamas?"
+        if msg.strip() == "3":
+            estado["estado"] = "esperando_email"
+            _set_estado_cita(numero_cliente, estado)
+            return "¿Cuál es tu correo electrónico?"
+        if msg.strip() != "1" and not re.search(r"\b(si|sí|confirmar|confirma|dale|ok|listo)\b", msg):
             return (
-                "Por favor escribe tus datos en este formato:\n\n"
-                "*Nombre:* [tu nombre completo]\n"
-                "*Email:* [tu correo electronico]"
+                f"Confirma tus datos:\n\n"
+                f"Nombre: {estado['cliente_nombre']}\n"
+                f"Email:  {estado['cliente_email']}\n\n"
+                "1. Confirmar\n"
+                "2. Corregir nombre\n"
+                "3. Corregir email"
             )
-        estado.update({
-            "estado": "confirmando",
-            "cliente_nombre": nombre.group(1).strip(),
-            "cliente_email":  email.group(1).strip().lower(),
-        })
+        # Datos confirmados → mostrar resumen de cita
+        estado["estado"] = "confirmando"
         _set_estado_cita(numero_cliente, estado)
 
         tipo = estado.get("tipo")
@@ -1579,6 +1599,10 @@ def manejar_negocio_citas(numero, mensaje, twilio_send,
         _del_estado_cita(num_cliente)
         twilio_send(num_cliente, _msg_confirmacion(conv, servicio_cita or {}, negocio))
         return f"✅ Cita de {num_corto} confirmada. El cliente fue notificado."
+
+    # ── mis citas (sin especificar) ──
+    if re.search(r"^mis\s+citas$", msg_low.strip()):
+        return "¿Quieres ver tus citas de hoy o de la semana?\n\n• *mis citas hoy*\n• *mis citas semana*"
 
     # ── mis citas hoy ──
     if re.search(r"mis\s+citas\s+hoy", msg_low):

@@ -58,7 +58,7 @@ RELAY_SEGUNDOS   = 1800  # 30 minutos
 
 _PATRONES_NEGOCIO = {
     "pedidos": [r"^no\s+hay\b", r"\blisto\b"],
-    "citas":   [r"mis\s+citas\s+(hoy|semana)", r"ocupado\s+hasta\b",
+    "citas":   [r"mis\s+citas", r"ocupado\s+hasta\b",
                 r"\bno\s+disponible\b", r"\blibre\s+\w+",
                 r"^cancelar\s+cita\b", r"^cancelar\s+\d{4}",
                 r"^confirmar\s+pago\b", r"^rechazar\s+pago\b",
@@ -211,6 +211,9 @@ def webhook():
 
     # ── ADMIN CITAS ──
     if re.match(r"^admin\s+", mensaje_lower) or tiene_sesion_admin_citas(numero_cliente):
+        if mensaje_lower.strip() == "ayuda":
+            msg.body(respuesta_ayuda("citas"))
+            return str(resp)
         resultado = manejar_negocio_citas(numero_cliente, mensaje, twilio_send,
                                           iniciar_timer_relay=iniciar_timer_relay,
                                           cancelar_timer_relay=cancelar_timer_relay)
