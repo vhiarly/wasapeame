@@ -188,7 +188,8 @@ def webhook():
         modo_emisor = neg_emisor.get("modo") if neg_emisor else "pedidos"
         codigo_en_msg, _ = detectar_codigo(mensaje)
 
-        if not codigo_en_msg and _es_comando_negocio(mensaje_lower, modo_emisor):
+        es_admin_pin_citas = re.match(r"^admin\s+", mensaje_lower) and modo_emisor != "citas"
+        if not codigo_en_msg and _es_comando_negocio(mensaje_lower, modo_emisor) and not es_admin_pin_citas:
             if mensaje_lower.strip() == "ayuda":
                 msg.body(respuesta_ayuda(modo_emisor))
                 return str(resp)
