@@ -743,6 +743,22 @@ def _escalar_noshow_sin_respuesta(twilio_send):
             print(f"[No-show] Error escalando: {e}")
 
 
+def _limpiar_conversaciones_expiradas():
+    """Elimina sesiones de agendamiento inactivas por más de 30 minutos."""
+    execute("""
+        DELETE FROM conversaciones_citas
+        WHERE estado NOT IN (
+            'esperando_comprobante',
+            'esperando_confirmacion_negocio',
+            'esperando_datos_reembolso',
+            'noshow_esperando_decision',
+            'noshow_cliente_esperando',
+            'esperando_resolucion_cliente'
+        )
+        AND actualizado_en < NOW() - INTERVAL '30 minutes'
+    """)
+
+
 def iniciar_recordatorios(twilio_send):
     def _loop():
         while True:
@@ -750,6 +766,7 @@ def iniciar_recordatorios(twilio_send):
                 _verificar_recordatorios(twilio_send)
                 _refresh_google_tokens()
                 _escalar_noshow_sin_respuesta(twilio_send)
+                _limpiar_conversaciones_expiradas()
             except Exception as e:
                 print(f"[RECORDATORIOS] Error: {e}")
             time.sleep(60)
