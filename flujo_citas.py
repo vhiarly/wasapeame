@@ -1142,8 +1142,7 @@ def _enviar_lista(numero_cliente, texto, filas, boton_texto="Ver opciones"):
         sections.append({
             "title": "Servicios" if len(chunks) == 1 else f"Servicios {i*10+1}–{i*10+len(chunk)}",
             "rows": [
-                {"id": fid, "title": ftit[:24],
-                 "description": (fdesc[:72] if fdesc else "")}
+                {"id": fid, "title": ftit[:24], **( {"description": fdesc[:72]} if fdesc else {})}
                 for fid, ftit, fdesc in chunk
             ]
         })
@@ -1445,7 +1444,7 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
                 elegido = dias[idx]
         else:
             for d in dias:
-                if msg in d[1].lower() or msg in d[2]:
+                if msg == d[0] or msg in d[1].lower() or msg in d[2]:
                     elegido = d
                     break
 
