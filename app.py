@@ -233,18 +233,25 @@ def webhook():
                 body_raw = "__audio__"
             elif msg_type == "interactive":
                 interactive_obj = msg_obj.get("interactive", {})
-                if interactive_obj.get("type") != "nfm_reply":
+                itype = interactive_obj.get("type")
+                if itype == "nfm_reply":
+                    import json as _json
+                    try:
+                        flow_data = _json.loads(interactive_obj["nfm_reply"]["response_json"])
+                    except (KeyError, ValueError):
+                        return jsonify({"status": "ok"}), 200
+                    resp = manejar_flow_cita(numero_cliente, flow_data, meta_send)
+                    if resp:
+                        _enviar(resp, numero_cliente)
                     return jsonify({"status": "ok"}), 200
-                import json as _json
-                try:
-                    flow_data = _json.loads(interactive_obj["nfm_reply"]["response_json"])
-                except (KeyError, ValueError):
+                elif itype == "button_reply":
+                    body_raw = interactive_obj["button_reply"]["id"]
+                    media_id = None
+                elif itype == "list_reply":
+                    body_raw = interactive_obj["list_reply"]["id"]
+                    media_id = None
+                else:
                     return jsonify({"status": "ok"}), 200
-                numero_cliente = "+" + msg_obj["from"]
-                resp = manejar_flow_cita(numero_cliente, flow_data, meta_send)
-                if resp:
-                    _enviar(resp, numero_cliente)
-                return jsonify({"status": "ok"}), 200
             else:
                 # Tipo no soportado (sticker, etc.) — ignorar silenciosamente
                 return jsonify({"status": "ok"}), 200

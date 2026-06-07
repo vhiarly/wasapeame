@@ -1099,6 +1099,76 @@ def _procesar_confirmacion(codigo, numero_cliente, estado, servicio, negocio, tw
     return meet_link
 
 
+# ── Mensajes interactivos (botones y listas) ──────────────────────────────────
+
+def _meta_interactive(numero_cliente, interactive_payload):
+    token    = os.getenv("META_ACCESS_TOKEN")
+    phone_id = os.getenv("META_PHONE_NUMBER_ID")
+    if not token or not phone_id:
+        return False
+    phone = numero_cliente.replace("+", "").strip()
+    try:
+        r = _req.post(
+            f"https://graph.facebook.com/v19.0/{phone_id}/messages",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"messaging_product": "whatsapp", "to": phone,
+                  "type": "interactive", "interactive": interactive_payload},
+            timeout=10
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def _enviar_botones(numero_cliente, texto, botones):
+    """botones: lista de (id, titulo) — máx 3."""
+    return _meta_interactive(numero_cliente, {
+        "type": "button",
+        "body": {"text": texto},
+        "action": {
+            "buttons": [
+                {"type": "reply", "reply": {"id": bid, "title": titulo[:20]}}
+                for bid, titulo in botones[:3]
+            ]
+        }
+    })
+
+
+def _enviar_lista(numero_cliente, texto, filas, boton_texto="Ver opciones"):
+    """filas: lista de (id, titulo, descripcion) — auto-chunked en secciones de 10."""
+    chunks = [filas[i:i+10] for i in range(0, len(filas), 10)]
+    sections = []
+    for i, chunk in enumerate(chunks):
+        sections.append({
+            "title": "Servicios" if len(chunks) == 1 else f"Servicios {i*10+1}–{i*10+len(chunk)}",
+            "rows": [
+                {"id": fid, "title": ftit[:24],
+                 "description": (fdesc[:72] if fdesc else "")}
+                for fid, ftit, fdesc in chunk
+            ]
+        })
+    return _meta_interactive(numero_cliente, {
+        "type": "list",
+        "body": {"text": texto},
+        "action": {"button": boton_texto[:20], "sections": sections}
+    })
+
+
+def _enviar_lista_servicios(numero_cliente, negocio):
+    servicios = [(c, sv) for c, sv in negocio.get("servicios", {}).items()
+                 if sv.get("activo", True)]
+    if not servicios:
+        return False
+    filas = [(clave, sv["nombre"], f"{sv['duracion_minutos']} min")
+             for clave, sv in servicios]
+    return _enviar_lista(numero_cliente, "Elige tu servicio:", filas, "Ver servicios")
+
+
+def _enviar_lista_lugares(numero_cliente, lugares):
+    filas = [(str(i), _lugar_nombre(l), "") for i, l in enumerate(lugares, 1)]
+    return _enviar_lista(numero_cliente, "Elige el lugar de reunion:", filas, "Ver lugares")
+
+
 # ── WhatsApp Flows ────────────────────────────────────────────────────────────
 
 def _enviar_flow_interactivo(numero_cliente, negocio):
@@ -1229,35 +1299,51 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
             estado["estado"] = "inicio"
             _set_estado_cita(numero_cliente, estado)
 
+        desc = negocio.get("descripcion", "")
+        bienvenida = f"Bienvenido a *{negocio['nombre']}*"
+        if desc:
+            bienvenida += f"\n\n{desc}"
+
         if lugares:
             estado["estado"] = "esperando_tipo"
             _set_estado_cita(numero_cliente, estado)
-            desc = negocio.get("descripcion", "")
-            desc_txt = f"\n\n{desc}" if desc else ""
-            return (f"Bienvenido a *{negocio['nombre']}*{desc_txt}\n\n"
-                    "¿Qué tipo de asesoría necesitas?\n\n"
-                    "1. Online (Google Meet)\n"
-                    "2. Presencial\n\n"
-                    "Escribe *1* o *2*.\n"
-                    "Escribe *cancelar* para salir.")
+            twilio_send(numero_cliente, bienvenida)
+            enviado = _enviar_botones(numero_cliente,
+                "¿Cómo prefieres tu cita?",
+                [("online", "Online (Meet)"), ("presencial", "Presencial")])
+            if enviado:
+                return None
+            return ("¿Qué tipo de asesoría necesitas?\n\n"
+                    "1. Online (Google Meet)\n2. Presencial\n\n"
+                    "Escribe *1* o *2*. Escribe *cancelar* para salir.")
+
         estado["estado"] = "esperando_servicio"
         _set_estado_cita(numero_cliente, estado)
-        return f"Bienvenido a {negocio['nombre']}!\n\n" + _txt_servicios(negocio)
+        twilio_send(numero_cliente, bienvenida)
+        enviado = _enviar_lista_servicios(numero_cliente, negocio)
+        if enviado:
+            return None
+        return _txt_servicios(negocio)
 
     # ── ESPERANDO TIPO ──
     if s == "esperando_tipo":
         if msg in ("1", "online"):
             estado.update({"estado": "esperando_servicio", "tipo": "online"})
             _set_estado_cita(numero_cliente, estado)
-            return _txt_servicios(negocio, estado.get("tipo"))
+            enviado = _enviar_lista_servicios(numero_cliente, negocio)
+            if enviado:
+                return None
+            return _txt_servicios(negocio, "online")
         if msg in ("2", "presencial"):
             estado.update({"estado": "esperando_lugar", "tipo": "presencial"})
             _set_estado_cita(numero_cliente, estado)
+            enviado = _enviar_lista_lugares(numero_cliente, lugares)
+            if enviado:
+                return None
             lineas = ["Elige el lugar de reunion:\n"]
             for i, l in enumerate(lugares, 1):
                 lineas.append(f"{i}. {_lugar_nombre(l)}")
             lineas.append("\nEscribe el *numero* del lugar.")
-            lineas.append("Escribe *cancelar* para salir.")
             return "\n".join(lineas)
         return "Escribe *1* para Online o *2* para Presencial."
 
@@ -1267,6 +1353,9 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
             lugar = _lugar_nombre(lugares[int(msg) - 1])
             estado.update({"estado": "esperando_servicio", "lugar": lugar})
             _set_estado_cita(numero_cliente, estado)
+            enviado = _enviar_lista_servicios(numero_cliente, negocio)
+            if enviado:
+                return None
             return _txt_servicios(negocio, estado.get("tipo"))
         return f"Escribe un numero del 1 al {len(lugares)}."
 
