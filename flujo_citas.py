@@ -1168,6 +1168,20 @@ def _enviar_lista_lugares(numero_cliente, lugares):
     filas = [(str(i), _lugar_nombre(l), "") for i, l in enumerate(lugares, 1)]
     return _enviar_lista(numero_cliente, "Elige el lugar de reunion:", filas, "Ver lugares")
 
+def _enviar_lista_dias(numero_cliente, negocio, duracion_min, es_presencial=False):
+    dias = _dias_del_negocio(negocio, duracion_min, es_presencial)
+    if not dias:
+        return False
+    filas = [(fecha, f"{nombre} {display}", "") for fecha, nombre, display in dias]
+    return _enviar_lista(numero_cliente, "Dias disponibles:", filas, "Ver dias")
+
+def _enviar_lista_horas(numero_cliente, negocio, fecha, duracion_min, es_presencial=False):
+    horas = _horas_del_dia(negocio, fecha, duracion_min, es_presencial)
+    if not horas:
+        return False
+    filas = [(h, _fmt12(h), "") for h in horas]
+    return _enviar_lista(numero_cliente, "Horas disponibles:", filas, "Ver horas")
+
 
 # ── WhatsApp Flows ────────────────────────────────────────────────────────────
 
@@ -1408,11 +1422,13 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
         _set_estado_cita(numero_cliente, estado)
 
         ep = estado.get("tipo") == "presencial"
-        txt = _txt_dias(negocio, serv_s["duracion_minutos"], ep)
-        if not txt:
+        if not _dias_del_negocio(negocio, serv_s["duracion_minutos"], ep):
             _del_estado_cita(numero_cliente)
             return "No hay disponibilidad en los proximos dias. Intenta mas adelante."
-        return txt
+        enviado = _enviar_lista_dias(numero_cliente, negocio, serv_s["duracion_minutos"], ep)
+        if enviado:
+            return None
+        return _txt_dias(negocio, serv_s["duracion_minutos"], ep)
 
     # ── ESPERANDO DÍA ──
     if s == "esperando_dia" and servicio:
@@ -1434,18 +1450,27 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
                     break
 
         if not elegido:
+            enviado = _enviar_lista_dias(numero_cliente, negocio, servicio["duracion_minutos"], ep)
+            if enviado:
+                return None
             return _txt_dias(negocio, servicio["duracion_minutos"], ep)
 
         fecha, nombre_dia, _ = elegido
         estado.update({"estado": "esperando_hora", "dia": fecha, "nombre_dia": nombre_dia})
         _set_estado_cita(numero_cliente, estado)
 
-        txt = _txt_horas(negocio, fecha, servicio["duracion_minutos"], ep)
-        if not txt:
+        if not _horas_del_dia(negocio, fecha, servicio["duracion_minutos"], ep):
             estado["estado"] = "esperando_dia"
             _set_estado_cita(numero_cliente, estado)
+            enviado = _enviar_lista_dias(numero_cliente, negocio, servicio["duracion_minutos"], ep)
+            if enviado:
+                twilio_send(numero_cliente, f"No hay horas disponibles el {nombre_dia}. Elige otro dia.")
+                return None
             return f"No hay horas disponibles el {nombre_dia}. Elige otro dia.\n\n" + _txt_dias(negocio, servicio["duracion_minutos"], ep)
-        return txt
+        enviado = _enviar_lista_horas(numero_cliente, negocio, fecha, servicio["duracion_minutos"], ep)
+        if enviado:
+            return None
+        return _txt_horas(negocio, fecha, servicio["duracion_minutos"], ep)
 
     # ── ESPERANDO HORA ──
     if s == "esperando_hora" and servicio:
@@ -1465,6 +1490,9 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
                     break
 
         if not elegida:
+            enviado = _enviar_lista_horas(numero_cliente, negocio, fecha, servicio["duracion_minutos"], ep)
+            if enviado:
+                return None
             return _txt_horas(negocio, fecha, servicio["duracion_minutos"], ep)
 
         datos = _get_datos_cliente(numero_cliente)
@@ -1476,14 +1504,16 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
                 "cliente_email": datos["email"],
             })
             _set_estado_cita(numero_cliente, estado)
-            return (
+            texto_datos = (
                 f"Usamos tus datos anteriores:\n\n"
                 f"Nombre: {datos['nombre']}\n"
-                f"Email:  {datos['email']}\n\n"
-                "1. Confirmar\n"
-                "2. Corregir nombre\n"
-                "3. Corregir email"
+                f"Email:  {datos['email']}"
             )
+            enviado = _enviar_botones(numero_cliente, texto_datos,
+                [("1", "Confirmar"), ("2", "Corregir nombre"), ("3", "Corregir email")])
+            if enviado:
+                return None
+            return texto_datos + "\n\n1. Confirmar\n2. Corregir nombre\n3. Corregir email"
         estado.update({"estado": "esperando_nombre", "hora": elegida})
         _set_estado_cita(numero_cliente, estado)
         return "¿Cómo te llamas?"
@@ -1501,14 +1531,16 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
             return "Ese correo no parece válido. Escríbelo de nuevo.\nEjemplo: nombre@gmail.com"
         estado.update({"estado": "verificando_datos", "cliente_email": email_raw})
         _set_estado_cita(numero_cliente, estado)
-        return (
+        texto_datos = (
             f"Confirma tus datos:\n\n"
             f"Nombre: {estado['cliente_nombre']}\n"
-            f"Email:  {estado['cliente_email']}\n\n"
-            "1. Confirmar\n"
-            "2. Corregir nombre\n"
-            "3. Corregir email"
+            f"Email:  {estado['cliente_email']}"
         )
+        enviado = _enviar_botones(numero_cliente, texto_datos,
+            [("1", "Confirmar"), ("2", "Corregir nombre"), ("3", "Corregir email")])
+        if enviado:
+            return None
+        return texto_datos + "\n\n1. Confirmar\n2. Corregir nombre\n3. Corregir email"
 
     # ── VERIFICANDO DATOS ──
     if s == "verificando_datos":
@@ -1521,26 +1553,31 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
             _set_estado_cita(numero_cliente, estado)
             return "¿Cuál es tu correo electrónico?"
         if msg.strip() != "1" and not re.search(r"\b(si|sí|confirmar|confirma|dale|ok|listo)\b", msg):
-            return (
+            texto_datos = (
                 f"Confirma tus datos:\n\n"
                 f"Nombre: {estado['cliente_nombre']}\n"
-                f"Email:  {estado['cliente_email']}\n\n"
-                "1. Confirmar\n"
-                "2. Corregir nombre\n"
-                "3. Corregir email"
+                f"Email:  {estado['cliente_email']}"
             )
+            enviado = _enviar_botones(numero_cliente, texto_datos,
+                [("1", "Confirmar"), ("2", "Corregir nombre"), ("3", "Corregir email")])
+            if enviado:
+                return None
+            return texto_datos + "\n\n1. Confirmar\n2. Corregir nombre\n3. Corregir email"
         # Datos confirmados → guardar para futuras citas
         _guardar_datos_cliente(numero_cliente, estado["cliente_nombre"], estado["cliente_email"])
         # Negocios ME piden una nota clínica breve antes de confirmar
         if negocio.get("tipo") == "ME":
             estado["estado"] = "esperando_nota"
             _set_estado_cita(numero_cliente, estado)
-            return (
+            texto_nota = (
                 "Antes de confirmar, puedes dejarle una nota al doctor:\n\n"
                 "Describe brevemente el motivo de tu consulta, síntomas o cualquier información relevante.\n\n"
-                "También puedes enviar una *nota de voz*.\n\n"
-                "Escribe *saltar* si prefieres no dejar nota."
+                "También puedes enviar una *nota de voz*."
             )
+            enviado = _enviar_botones(numero_cliente, texto_nota, [("saltar", "Saltar nota")])
+            if enviado:
+                return None
+            return texto_nota + "\n\nEscribe *saltar* si prefieres no dejar nota."
         estado["estado"] = "confirmando"
         _set_estado_cita(numero_cliente, estado)
 
@@ -1560,9 +1597,11 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
         if costo:
             r += f"Costo:    *${costo:,} DOP*\n"
         r += f"Dia:      {estado['nombre_dia']}\n"
-        r += f"Hora:     {_fmt12(estado['hora'])}\n"
-        r += "\nEscribe *si* para continuar o *cancelar* para salir."
-        return r
+        r += f"Hora:     {_fmt12(estado['hora'])}"
+        enviado = _enviar_botones(numero_cliente, r, [("si", "Confirmar"), ("cancelar", "Cancelar")])
+        if enviado:
+            return None
+        return r + "\n\nEscribe *si* para continuar o *cancelar* para salir."
 
     # ── ESPERANDO NOTA (solo ME) ──
     if s == "esperando_nota":
@@ -1591,15 +1630,20 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
         if costo:
             r += f"Costo:    *${costo:,} DOP*\n"
         r += f"Dia:      {estado['nombre_dia']}\n"
-        r += f"Hora:     {_fmt12(estado['hora'])}\n"
-        r += "\nEscribe *si* para confirmar o *cancelar* para salir."
-        return r
+        r += f"Hora:     {_fmt12(estado['hora'])}"
+        enviado = _enviar_botones(numero_cliente, r, [("si", "Confirmar"), ("cancelar", "Cancelar")])
+        if enviado:
+            return None
+        return r + "\n\nEscribe *si* para confirmar o *cancelar* para salir."
 
     # ── CONFIRMANDO ──
     if s == "confirmando" and servicio:
         if not re.search(r"\b(si|sí|confirmar|confirma|dale|ok|listo)\b", msg):
-            return (f"Servicio: {servicio['nombre']} — {_fmt12(estado['hora'])} el {estado['nombre_dia']}\n\n"
-                    "Escribe *si* para confirmar o *cancelar* para salir.")
+            texto_rec = f"Servicio: {servicio['nombre']} — {_fmt12(estado['hora'])} el {estado['nombre_dia']}"
+            enviado = _enviar_botones(numero_cliente, texto_rec, [("si", "Confirmar"), ("cancelar", "Cancelar")])
+            if enviado:
+                return None
+            return texto_rec + "\n\nEscribe *si* para confirmar o *cancelar* para salir."
 
         if negocio.get("requiere_comprobante") and negocio.get("instrucciones_pago"):
             estado["estado"] = "esperando_comprobante"
