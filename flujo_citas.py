@@ -1156,7 +1156,7 @@ def _enviar_lista(numero_cliente, texto, filas, boton_texto="Ver opciones"):
 def _enviar_lista_servicios(numero_cliente, negocio):
     servicios = [(c, sv) for c, sv in negocio.get("servicios", {}).items()
                  if sv.get("activo", True)]
-    if not servicios:
+    if not servicios or len(servicios) > 10:
         return False
     filas = [(clave, sv["nombre"], sv.get("descripcion") or f"{sv['duracion_minutos']} min")
              for clave, sv in servicios]
