@@ -1299,8 +1299,12 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
             estado["estado"] = "inicio"
             _set_estado_cita(numero_cliente, estado)
 
-        desc = negocio.get("descripcion", "")
-        bienvenida = f"Bienvenido a *{negocio['nombre']}*"
+        desc  = negocio.get("descripcion", "")
+        _nom  = negocio['nombre']
+        _emoji_sufijo = negocio.get("emoji_bienvenida", "")
+        bienvenida = f"Bienvenido a *{_nom}*"
+        if _emoji_sufijo:
+            bienvenida += f" {_emoji_sufijo}"
         if desc:
             bienvenida += f"\n\n{desc}"
 
