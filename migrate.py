@@ -319,6 +319,11 @@ def migrate():
           ADD COLUMN IF NOT EXISTS fecha DATE DEFAULT CURRENT_DATE
     """)
 
+    cur.execute("""
+        ALTER TABLE negocios
+          ADD COLUMN IF NOT EXISTS flow_id VARCHAR(50)
+    """)
+
     # Columnas agregadas en sesión 2026-06-06 (ME2, transcripción médica, nota paciente)
     cur.execute("""
         ALTER TABLE conversaciones_citas

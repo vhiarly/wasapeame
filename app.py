@@ -11,7 +11,8 @@ from negocio_router import detectar_codigo, obtener_negocio, es_numero_negocio
 from flujo_pedidos import manejar_pedido, manejar_negocio, tiene_flujo_activo, limpiar_flujo, cancelar_timeout
 from flujo_citas import (manejar_cita, manejar_negocio_citas, tiene_flujo_citas,
                          tiene_sesion_admin_citas, iniciar_recordatorios,
-                         manejar_relay_mensaje, cerrar_relay_timeout)
+                         manejar_relay_mensaje, cerrar_relay_timeout,
+                         manejar_flow_cita)
 from flujo_registro import manejar_registro, iniciar_registro, tiene_flujo_registro
 from asistente_ia import consultar_ia, respuesta_ayuda
 from transcripcion_medica import procesar_nota_voz_medica
@@ -230,6 +231,20 @@ def webhook():
             elif msg_type == "audio":
                 media_id = msg_obj["audio"]["id"]
                 body_raw = "__audio__"
+            elif msg_type == "interactive":
+                interactive_obj = msg_obj.get("interactive", {})
+                if interactive_obj.get("type") != "nfm_reply":
+                    return jsonify({"status": "ok"}), 200
+                import json as _json
+                try:
+                    flow_data = _json.loads(interactive_obj["nfm_reply"]["response_json"])
+                except (KeyError, ValueError):
+                    return jsonify({"status": "ok"}), 200
+                numero_cliente = "+" + msg_obj["from"]
+                resp = manejar_flow_cita(numero_cliente, flow_data, meta_send)
+                if resp:
+                    _enviar(resp, numero_cliente)
+                return jsonify({"status": "ok"}), 200
             else:
                 # Tipo no soportado (sticker, etc.) — ignorar silenciosamente
                 return jsonify({"status": "ok"}), 200

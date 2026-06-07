@@ -1,6 +1,9 @@
 import re
+import os
+import uuid
 import threading
 import time
+import requests as _req
 from datetime import datetime, timedelta, date, time as dtime
 from zoneinfo import ZoneInfo
 from db import execute
@@ -1096,6 +1099,90 @@ def _procesar_confirmacion(codigo, numero_cliente, estado, servicio, negocio, tw
     return meet_link
 
 
+# ── WhatsApp Flows ────────────────────────────────────────────────────────────
+
+def _enviar_flow_interactivo(numero_cliente, negocio):
+    """Envía el Flow de selección de servicio/tipo al cliente. Retorna True si ok."""
+    flow_id = negocio.get("flow_id")
+    if not flow_id:
+        return False
+    token   = os.getenv("META_ACCESS_TOKEN")
+    phone_id = os.getenv("META_PHONE_NUMBER_ID")
+    if not token or not phone_id:
+        return False
+    phone = numero_cliente.replace("+", "").strip()
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone,
+        "type": "interactive",
+        "interactive": {
+            "type": "flow",
+            "body": {"text": f"Agenda tu cita con *{negocio['nombre']}*:"},
+            "action": {
+                "name": "flow",
+                "parameters": {
+                    "flow_message_version": "3",
+                    "flow_token": str(uuid.uuid4()),
+                    "flow_id": flow_id,
+                    "flow_cta": "Agendar cita",
+                    "flow_action": "navigate",
+                    "flow_action_payload": {"screen": "SERVICIO"}
+                }
+            }
+        }
+    }
+    try:
+        r = _req.post(
+            f"https://graph.facebook.com/v19.0/{phone_id}/messages",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload, timeout=10
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def manejar_flow_cita(numero_cliente, response_data, twilio_send):
+    """Procesa la respuesta de un WhatsApp Flow de citas y retoma el flujo."""
+    estado = _get_estado_cita(numero_cliente)
+    if not estado:
+        return None
+
+    negocio = obtener_negocio(estado["codigo"])
+    if not negocio:
+        return None
+
+    servicio_clave = response_data.get("servicio_clave")
+    tipo           = response_data.get("tipo")  # "online" | "presencial"
+
+    if not servicio_clave or not tipo:
+        return "Hubo un problema con tu seleccion. Escribe el codigo del negocio para intentar de nuevo."
+
+    servicio = negocio.get("servicios", {}).get(servicio_clave)
+    if not servicio:
+        return "Servicio no reconocido. Escribe el codigo del negocio para intentar de nuevo."
+
+    lugares = negocio.get("lugares_reunion") or []
+
+    if tipo == "presencial" and lugares:
+        estado.update({"estado": "esperando_lugar", "servicio_clave": servicio_clave, "tipo": "presencial"})
+        _set_estado_cita(numero_cliente, estado)
+        lineas = ["Elige el lugar de reunion:\n"]
+        for i, l in enumerate(lugares, 1):
+            lineas.append(f"{i}. {_lugar_nombre(l)}")
+        lineas.append("\nEscribe el *numero* del lugar.")
+        return "\n".join(lineas)
+
+    estado.update({"estado": "esperando_dia", "servicio_clave": servicio_clave, "tipo": tipo})
+    _set_estado_cita(numero_cliente, estado)
+    ep  = (tipo == "presencial")
+    txt = _txt_dias(negocio, servicio["duracion_minutos"], ep)
+    if not txt:
+        _del_estado_cita(numero_cliente)
+        return "No hay disponibilidad en los proximos dias. Intenta mas adelante."
+    return txt
+
+
 def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
     msg = mensaje.strip().lower()
 
@@ -1128,6 +1215,20 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
     # ── INICIO ──
     lugares = negocio.get("lugares_reunion") or []
     if s == "inicio":
+        # Si el negocio tiene un Flow publicado, usarlo en lugar del menú de texto
+        if negocio.get("flow_id"):
+            estado["estado"] = "esperando_flow"
+            _set_estado_cita(numero_cliente, estado)
+            desc = negocio.get("descripcion", "")
+            if desc:
+                twilio_send(numero_cliente, f"Bienvenido a *{negocio['nombre']}*\n\n{desc}")
+            enviado = _enviar_flow_interactivo(numero_cliente, negocio)
+            if enviado:
+                return None  # Flow ya enviado, app.py no manda nada más
+            # Fallback si el Flow falla
+            estado["estado"] = "inicio"
+            _set_estado_cita(numero_cliente, estado)
+
         if lugares:
             estado["estado"] = "esperando_tipo"
             _set_estado_cita(numero_cliente, estado)
