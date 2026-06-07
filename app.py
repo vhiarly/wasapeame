@@ -212,6 +212,7 @@ def webhook():
         data = request.get_json(silent=True) or {}
 
         # Extraer mensaje de la estructura de Meta Cloud API
+        is_interactive_id = False
         try:
             entry   = data["entry"][0]
             changes = entry["changes"][0]["value"]
@@ -247,9 +248,11 @@ def webhook():
                 elif itype == "button_reply":
                     body_raw = interactive_obj["button_reply"]["id"]
                     media_id = None
+                    is_interactive_id = True
                 elif itype == "list_reply":
                     body_raw = interactive_obj["list_reply"]["id"]
                     media_id = None
+                    is_interactive_id = True
                 else:
                     return jsonify({"status": "ok"}), 200
             else:
@@ -258,9 +261,10 @@ def webhook():
         except (KeyError, IndexError):
             return jsonify({"status": "ok"}), 200
 
-        # Normalizar texto
+        # Normalizar texto (IDs de interactivos no se sanitizan — contienen guiones bajos)
         _raw          = unicodedata.normalize("NFKC", body_raw)
-        _raw          = re.sub(r"[*_~`]", "", _raw)
+        if not is_interactive_id:
+            _raw      = re.sub(r"[*_~`]", "", _raw)
         _raw          = re.sub(r"\s+", " ", _raw).strip()
         mensaje       = _raw
         mensaje_lower = mensaje.lower().strip()
