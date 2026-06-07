@@ -354,7 +354,7 @@ def webhook():
 
             if respuesta:
                 _enviar(respuesta, numero_cliente)
-            else:
+            elif respuesta is not None:
                 meta_send(numero_cliente, _msg_perdido())
             return jsonify({"status": "ok"}), 200
 
