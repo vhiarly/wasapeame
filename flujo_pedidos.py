@@ -991,6 +991,9 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
             pedido = _get_pedido(numero_cliente)
             _enviar_pedido_a_negocio(negocio["numero_negocio"], numero_cliente, pedido, twilio_send)
 
+        instrucciones = negocio.get("instrucciones_pago", "")
+        if instrucciones:
+            r += f"\n\n{instrucciones}"
         r += "\n\n1. Ajustar pedido\n2. Cancelar"
         r += "\n\n_Wappi no se responsabiliza por la calidad ni contenido del pedido._"
         return r
