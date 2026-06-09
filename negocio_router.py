@@ -45,7 +45,7 @@ def obtener_negocio(codigo):
             neg = dict(zip(cols, row))
 
             cur.execute(
-                "SELECT clave, nombre, precio, unidad, rebanado, activo, cantidad "
+                "SELECT clave, nombre, precio, unidad, rebanado, activo, cantidad, categoria "
                 "FROM catalogo WHERE codigo = %s",
                 (codigo,)
             )
@@ -54,12 +54,13 @@ def obtener_negocio(codigo):
             for r in cur.fetchall():
                 d = dict(zip(cols, r))
                 catalogo[d["clave"]] = {
-                    "nombre":   d["nombre"],
-                    "precio":   float(d["precio"]),
-                    "unidad":   d["unidad"],
-                    "rebanado": d["rebanado"],
-                    "activo":   d["activo"],
-                    "cantidad": d["cantidad"],
+                    "nombre":    d["nombre"],
+                    "precio":    float(d["precio"]),
+                    "unidad":    d["unidad"],
+                    "rebanado":  d["rebanado"],
+                    "activo":    d["activo"],
+                    "cantidad":  d["cantidad"],
+                    "categoria": d.get("categoria") or "",
                 }
 
             cur.execute(

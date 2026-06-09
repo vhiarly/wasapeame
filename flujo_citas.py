@@ -1573,7 +1573,10 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
 
         if not elegido:
             _set_estado_cita(numero_cliente, estado)
-            return _txt_servicios(negocio, estado.get("tipo"))
+            enviado = _enviar_lista_servicios(numero_cliente, negocio, cat_filtro)
+            if enviado:
+                return None
+            return _txt_servicios(negocio, estado.get("tipo"), cat_filtro)
 
         clave_s, serv_s = elegido
         estado.update({"estado": "esperando_dia", "servicio_clave": clave_s})

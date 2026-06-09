@@ -1,4 +1,6 @@
+import os
 import re
+import requests as _req
 from datetime import date
 from psycopg2.extras import Json
 from db import execute
@@ -348,6 +350,132 @@ def _menu(negocio):
     return "\n".join(lineas)
 
 
+# ── Mensajes interactivos ─────────────────────────────────────────────────────
+
+def _meta_interactive(numero_cliente, interactive_payload):
+    token    = os.getenv("META_ACCESS_TOKEN")
+    phone_id = os.getenv("META_PHONE_NUMBER_ID")
+    if not token or not phone_id:
+        return False
+    phone = numero_cliente.replace("+", "").strip()
+    try:
+        r = _req.post(
+            f"https://graph.facebook.com/v19.0/{phone_id}/messages",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"messaging_product": "whatsapp", "to": phone,
+                  "type": "interactive", "interactive": interactive_payload},
+            timeout=10
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def _enviar_botones(numero_cliente, texto, botones):
+    """botones: lista de (id, titulo) — máx 3."""
+    return _meta_interactive(numero_cliente, {
+        "type": "button",
+        "body": {"text": texto},
+        "action": {
+            "buttons": [
+                {"type": "reply", "reply": {"id": bid, "title": titulo[:20]}}
+                for bid, titulo in botones[:3]
+            ]
+        }
+    })
+
+
+def _enviar_lista_pedidos(numero_cliente, texto, filas, boton_texto="Ver opciones", seccion_titulo="Opciones"):
+    """filas: lista de (id, titulo, descripcion) — auto-chunked en secciones de 10."""
+    chunks = [filas[i:i+10] for i in range(0, len(filas), 10)]
+    sections = []
+    for i, chunk in enumerate(chunks):
+        title = seccion_titulo if len(chunks) == 1 else f"{seccion_titulo} {i*10+1}-{i*10+len(chunk)}"
+        sections.append({
+            "title": title,
+            "rows": [
+                {"id": fid, "title": ftit[:24], **( {"description": fdesc[:72]} if fdesc else {})}
+                for fid, ftit, fdesc in chunk
+            ]
+        })
+    return _meta_interactive(numero_cliente, {
+        "type": "list",
+        "body": {"text": texto},
+        "action": {"button": boton_texto[:20], "sections": sections}
+    })
+
+
+# ── Helpers de categorías ─────────────────────────────────────────────────────
+
+def _tiene_categorias(negocio):
+    return any(
+        p.get("categoria") for p in negocio.get("catalogo", {}).values()
+        if p.get("activo", True)
+    )
+
+
+def _emoji_categoria(nombre):
+    return {
+        "Temporada": "🌟", "Pasteles Enteros": "🎂", "Postres": "🍮",
+        "Especiales": "✨", "Bocadillos": "🥐", "Combos": "📦", "Lunch Box": "🎁",
+    }.get(nombre, "🛍️")
+
+
+def _nombre_a_cat_id(nombre):
+    return "cat_" + re.sub(r'[^a-z0-9]+', '_', nombre.lower().strip()).strip('_')
+
+
+def _categorias_activas(negocio):
+    vistas = []
+    for prod in negocio.get("catalogo", {}).values():
+        cat = prod.get("categoria")
+        if prod.get("activo", True) and cat and cat not in vistas:
+            vistas.append(cat)
+    return vistas
+
+
+def _bienvenida_interactiva(numero_cliente, negocio):
+    nombre = negocio["nombre"]
+    desc   = negocio.get("descripcion", "")
+    texto  = f"🎂 ¡Bienvenido a *{nombre}*!"
+    if desc:
+        texto += f"\n\n_{desc}_"
+    texto += "\n\n👇 Presiona el botón para ver nuestro menú."
+    return _enviar_botones(numero_cliente, texto, [("menu", "🛍️ Ver Menú")])
+
+
+def _enviar_categorias(numero_cliente, negocio):
+    cats  = _categorias_activas(negocio)
+    filas = [(_nombre_a_cat_id(c), f"{_emoji_categoria(c)} {c}", "") for c in cats]
+    return _enviar_lista_pedidos(
+        numero_cliente,
+        "¿Qué te gustaría ordenar?\n\nElige una categoría:",
+        filas,
+        boton_texto="Ver Menú",
+        seccion_titulo="Categorías",
+    )
+
+
+def _enviar_productos_cat(numero_cliente, negocio, categoria):
+    catalogo  = negocio.get("catalogo", {})
+    productos = [(cl, p) for cl, p in catalogo.items()
+                 if p.get("activo", True) and p.get("categoria") == categoria]
+    if not productos:
+        return False
+    emoji = _emoji_categoria(categoria)
+    filas = []
+    for clave, prod in productos:
+        precio_str = f"RD${prod['precio']:.0f}" if prod["precio"] > 0 else "Precio al consultar"
+        filas.append((clave, prod["nombre"], precio_str))
+    return _enviar_lista_pedidos(
+        numero_cliente,
+        f"*{emoji} {categoria}*\n\nToca el producto para agregarlo:",
+        filas,
+        boton_texto="Ver productos",
+        seccion_titulo=categoria,
+    )
+
+
 def _resumen(items, pie=""):
     total = sum(i["precio"] for i in items)
     lineas = ["Tu orden:\n"] + [_fmt(i) for i in items] + [f"\nTotal: ${total:.0f} pesos"]
@@ -446,7 +574,12 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
             "item_pendiente_rebanado": None, "cola_rebanado": None,
             "rebanado_origen": None, "item_sin_stock": None,
         }
+        if _tiene_categorias(negocio):
+            estado["estado"] = "esperando_menu"
         _set_estado(numero_cliente, estado)
+        if estado["estado"] == "esperando_menu":
+            _bienvenida_interactiva(numero_cliente, negocio)
+            return None
 
     s = estado["estado"]
     items = estado.get("items") or []
@@ -457,9 +590,21 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
         return _ejecutar_cancelacion(numero_cliente, codigo, negocio, twilio_send,
                                      notificar_negocio=notificar)
 
+    # ── ESPERANDO MENÚ (bienvenida enviada, esperando botón) ──
+    if s == "esperando_menu":
+        _enviar_categorias(numero_cliente, negocio)
+        estado["estado"] = "esperando_categoria"
+        _set_estado(numero_cliente, estado)
+        return None
+
     # ── PIDIENDO ──
     if s == "pidiendo":
         if not msg or any(p in msg for p in ["hola", "buenas", "menu", "menú", "que tienen", "que hay"]):
+            if _tiene_categorias(negocio):
+                _enviar_categorias(numero_cliente, negocio)
+                estado["estado"] = "esperando_categoria"
+                _set_estado(numero_cliente, estado)
+                return None
             return _menu(negocio)
 
         # "1" con items = confirmar (tiene prioridad sobre selección de producto 1)
@@ -474,6 +619,23 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
             estado["estado"] = "esperando_confirmacion"
             _set_estado(numero_cliente, estado)
             return _resumen(items, "\n1. Confirmar pedido\n0. Cancelar")
+
+        # Selección por clave (reply de lista interactiva)
+        _cat_tmp = negocio.get("catalogo", {})
+        if msg in _cat_tmp and _cat_tmp[msg].get("activo", True) and _tiene_categorias(negocio):
+            prod_sel = _cat_tmp[msg]
+            item = {
+                "clave": msg, "nombre": prod_sel["nombre"],
+                "cantidad": 1, "texto": "1",
+                "unidad": prod_sel["unidad"], "precio": prod_sel["precio"],
+            }
+            items.append(item)
+            estado["items"] = items
+            estado["estado"] = "esperando_categoria"
+            _set_estado(numero_cliente, estado)
+            return (f"✅ *{prod_sel['nombre']}* agregado.\n\n"
+                    + _resumen(items)
+                    + "\n\nEscribe *menú* para ver más o *confirmar* para ordenar.")
 
         # Selección numérica del menú
         clave_sel, prod_sel = _seleccion_numerica(msg, negocio.get("catalogo", {}))
@@ -600,6 +762,47 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
         if agotados:
             respuesta += f"\n\n(Nota: {', '.join(agotados)} está agotado y no se agregó.)"
         return respuesta
+
+    # ── ESPERANDO CATEGORÍA (navegando el menú interactivo) ──
+    if s == "esperando_categoria":
+        # Confirmar
+        if any(re.search(r"\b" + p + r"\b", msg) for p in _CONFIRMAR):
+            if not items:
+                _enviar_categorias(numero_cliente, negocio)
+                return None
+            estado["estado"] = "esperando_confirmacion"
+            _set_estado(numero_cliente, estado)
+            return _resumen(items, "\n1. Confirmar pedido\n0. Cancelar")
+
+        # Selección de categoría (cat_*)
+        if msg.startswith("cat_"):
+            cat_name = next(
+                (c for c in _categorias_activas(negocio) if _nombre_a_cat_id(c) == msg),
+                None
+            )
+            if cat_name:
+                _enviar_productos_cat(numero_cliente, negocio, cat_name)
+                return None
+
+        # Selección de producto por clave (reply de lista interactiva)
+        catalogo = negocio.get("catalogo", {})
+        if msg in catalogo and catalogo[msg].get("activo", True):
+            prod_sel = catalogo[msg]
+            item = {
+                "clave": msg, "nombre": prod_sel["nombre"],
+                "cantidad": 1, "texto": "1",
+                "unidad": prod_sel["unidad"], "precio": prod_sel["precio"],
+            }
+            items.append(item)
+            estado["items"] = items
+            _set_estado(numero_cliente, estado)
+            return (f"✅ *{prod_sel['nombre']}* agregado.\n\n"
+                    + _resumen(items)
+                    + "\n\nEscribe *menú* para ver más o *confirmar* para ordenar.")
+
+        # Cualquier otra cosa → re-mostrar categorías
+        _enviar_categorias(numero_cliente, negocio)
+        return None
 
     # ── ESPERANDO CANTIDAD LIBRA ──
     if s == "esperando_cantidad_libra":
