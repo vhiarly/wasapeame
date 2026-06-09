@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Agentes — Wappi</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #080D0A; --surface: #111812; --brand: #00C896;
+      --text: #E8F5EE; --muted: #7A9A87; --border: rgba(0,200,150,0.12);
+      --red: #FF5252; --yellow: #FFD740; --green: #69F0AE;
+    }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; min-height: 100vh; }
+
+    /* PIN screen */
+    .pin-screen {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 100vh; gap: 1.5rem;
+    }
+    .pin-screen img { height: 80px; opacity: .8; mix-blend-mode: lighten; }
+    .pin-screen h2 { font-size: 1.1rem; color: var(--muted); font-weight: 400; }
+    .pin-screen input {
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--text); font-size: 1.5rem; letter-spacing: .4em;
+      padding: .75rem 1.5rem; border-radius: .75rem; text-align: center; width: 220px;
+      outline: none;
+    }
+    .pin-screen input:focus { border-color: var(--brand); }
+    .pin-screen .error { color: var(--red); font-size: .85rem; }
+    .pin-screen button {
+      background: var(--brand); color: #000; font-weight: 700;
+      padding: .75rem 2rem; border: none; border-radius: 2rem; cursor: pointer; font-size: 1rem;
+    }
+
+    /* Dashboard */
+    .dashboard { display: none; padding: 2rem; max-width: 1100px; margin: 0 auto; }
+    header { display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    header img { height: 48px; mix-blend-mode: lighten; }
+    header h1 { font-size: 1.4rem; font-weight: 700; }
+    header span { margin-left: auto; color: var(--muted); font-size: .85rem; }
+
+    /* Agentes cards */
+    .agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+    .agent-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 1rem; padding: 1.25rem;
+    }
+    .agent-card .name { font-weight: 700; font-size: 1rem; margin-bottom: .25rem; }
+    .agent-card .role { font-size: .8rem; color: var(--muted); margin-bottom: .75rem; }
+    .agent-card .status { font-size: .8rem; font-weight: 600; }
+    .status-ok { color: var(--green); }
+    .status-warn { color: var(--yellow); }
+    .status-off { color: var(--muted); }
+
+    /* Log table */
+    .section-title { font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: .75rem; }
+    .log-table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+    .log-table th { text-align: left; padding: .5rem .75rem; color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--border); }
+    .log-table td { padding: .6rem .75rem; border-bottom: 1px solid rgba(0,200,150,0.06); vertical-align: top; }
+    .log-table tr:hover td { background: rgba(0,200,150,0.04); }
+    .badge {
+      display: inline-block; font-size: .7rem; font-weight: 700; padding: .2rem .6rem;
+      border-radius: 2rem; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .badge-ok { background: rgba(105,240,174,.15); color: var(--green); }
+    .badge-warn { background: rgba(255,215,64,.15); color: var(--yellow); }
+    .badge-err { background: rgba(255,82,82,.15); color: var(--red); }
+    .badge-info { background: rgba(0,200,150,.15); color: var(--brand); }
+    .agente-tag { font-size: .75rem; color: var(--brand); font-weight: 600; }
+    .ts { color: var(--muted); font-size: .75rem; white-space: nowrap; }
+    .empty { text-align: center; color: var(--muted); padding: 3rem; }
+
+    .filter-bar { display: flex; gap: .5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .filter-btn {
+      background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+      padding: .35rem .9rem; border-radius: 2rem; font-size: .8rem; cursor: pointer;
+    }
+    .filter-btn.active { border-color: var(--brand); color: var(--brand); }
+  </style>
+</head>
+<body>
+
+<!-- PIN screen -->
+<div class="pin-screen" id="pinScreen">
+  <img src="/static/wpicon.png" alt="Wappi"/>
+  <h2>Panel de Agentes</h2>
+  <input type="password" id="pinInput" maxlength="20" placeholder="••••" autofocus
+         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+  <p class="error" id="pinError" style="display:none">PIN incorrecto</p>
+  <button onclick="verificarPin()">Entrar</button>
+</div>
+
+<!-- Dashboard -->
+<div class="dashboard" id="dashboard">
+  <header>
+    <img src="/static/wpicon.png" alt="Wappi"/>
+    <h1>Agentes</h1>
+    <span id="lastUpdate">Cargando...</span>
+  </header>
+
+  <!-- Agentes status -->
+  <div class="agents-grid">
+    <div class="agent-card">
+      <div class="name">Maverick</div>
+      <div class="role">Monitoreo y auto-corrección</div>
+      <div class="status status-ok" id="statusMaverick">● Activo</div>
+    </div>
+    <div class="agent-card">
+      <div class="name">Indiana</div>
+      <div class="role">Onboarding de negocios</div>
+      <div class="status status-ok" id="statusIndiana">● Activo</div>
+    </div>
+    <div class="agent-card">
+      <div class="name">Phoenix</div>
+      <div class="role">Fallback inteligente (clientes)</div>
+      <div class="status status-off" id="statusPhoenix">● En construcción</div>
+    </div>
+    <div class="agent-card">
+      <div class="name">Viper</div>
+      <div class="role">Reportes semanales</div>
+      <div class="status status-off" id="statusViper">● En construcción</div>
+    </div>
+  </div>
+
+  <!-- Acciones -->
+  <div class="section-title">Acciones</div>
+  <div class="filter-bar" style="margin-bottom:2rem">
+    <button class="filter-btn" style="color:var(--red);border-color:rgba(255,82,82,.3)" onclick="limpiarTodo()">Limpiar todo</button>
+  </div>
+
+  <!-- Log -->
+  <div class="section-title">Eventos recientes</div>
+  <div class="filter-bar">
+    <button class="filter-btn active" onclick="filtrar('todos', this)">Todos</button>
+    <button class="filter-btn" onclick="filtrar('maverick', this)">Maverick</button>
+    <button class="filter-btn" onclick="filtrar('indiana', this)">Indiana</button>
+    <button class="filter-btn" onclick="filtrar('sin_resolver', this)">Sin resolver</button>
+  </div>
+  <table class="log-table">
+    <thead>
+      <tr>
+        <th>Agente</th>
+        <th>Descripción</th>
+        <th>Estado</th>
+        <th>Fecha</th>
+      </tr>
+    </thead>
+    <tbody id="logBody">
+      <tr><td colspan="4" class="empty">Cargando...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+let sessionPin = "";
+let filtroActivo = "todos";
+
+function verificarPin() {
+  const pin = document.getElementById("pinInput").value;
+  fetch("/agents/api/logs?pin=" + encodeURIComponent(pin))
+    .then(r => {
+      if (r.status === 403) {
+        document.getElementById("pinError").style.display = "block";
+        return null;
+      }
+      sessionPin = pin;
+      document.getElementById("pinScreen").style.display = "none";
+      document.getElementById("dashboard").style.display = "block";
+      return r.json();
+    })
+    .then(data => { if (data) renderLogs(data); });
+}
+
+document.getElementById("pinInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") verificarPin();
+});
+
+function filtrar(tipo, btn) {
+  filtroActivo = tipo;
+  document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  cargarLogs();
+}
+
+function cargarLogs() {
+  fetch("/agents/api/logs?pin=" + encodeURIComponent(sessionPin) + "&filtro=" + filtroActivo)
+    .then(r => r.json())
+    .then(renderLogs);
+}
+
+function renderLogs(data) {
+  const tbody = document.getElementById("logBody");
+  document.getElementById("lastUpdate").textContent = "Actualizado: " + new Date().toLocaleTimeString("es-DO");
+
+  if (!data.logs || data.logs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">Sin eventos registrados</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.logs.map(r => {
+    const badge = r.resuelto
+      ? '<span class="badge badge-ok">Resuelto</span>'
+      : tipoABadge(r.tipo);
+    const ts = new Date(r.creado_en).toLocaleString("es-DO", {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
+    });
+    return `<tr>
+      <td><span class="agente-tag">${r.agente}</span></td>
+      <td>${r.descripcion}</td>
+      <td>${badge}</td>
+      <td class="ts">${ts}</td>
+    </tr>`;
+  }).join("");
+}
+
+function tipoABadge(tipo) {
+  if (tipo.includes("error")) return '<span class="badge badge-err">Error</span>';
+  if (tipo.includes("atascad")) return '<span class="badge badge-warn">Atascado</span>';
+  if (tipo.includes("pago")) return '<span class="badge badge-warn">Pago</span>';
+  return '<span class="badge badge-info">Info</span>';
+}
+
+function limpiarTodo() {
+  if (!confirm("¿Borrar TODAS las citas y conversaciones? Esto no se puede deshacer.")) return;
+  fetch("/agents/api/limpiar?pin=" + encodeURIComponent(sessionPin), { method: "POST" })
+    .then(r => r.json())
+    .then(d => { alert(d.mensaje || "Listo"); cargarLogs(); })
+    .catch(() => alert("Error al limpiar"));
+}
+
+// Auto-refresh cada 60s
+setInterval(() => { if (sessionPin) cargarLogs(); }, 60000);
+</script>
+</body>
+</html>

@@ -15,6 +15,7 @@ from flujo_citas import (manejar_cita, manejar_negocio_citas, tiene_flujo_citas,
                          manejar_flow_cita)
 from flujo_registro import manejar_registro, iniciar_registro, tiene_flujo_registro
 from asistente_ia import consultar_ia, respuesta_ayuda
+from maverick import iniciar_maverick
 from transcripcion_medica import procesar_nota_voz_medica
 from flujo_citas import guardar_transcripcion_pendiente
 from oauth_routes import oauth_bp
@@ -25,6 +26,7 @@ init_pool()
 execute("DELETE FROM conversaciones_pedidos WHERE timeout_en < NOW()")
 execute("CREATE TABLE IF NOT EXISTS clientes_vistos (numero TEXT PRIMARY KEY)")
 execute("CREATE TABLE IF NOT EXISTS clientes (numero TEXT PRIMARY KEY, nombre TEXT, email TEXT)")
+execute("ALTER TABLE conversaciones_registro ADD COLUMN IF NOT EXISTS datos JSONB NOT NULL DEFAULT '{}'")
 
 app = Flask(__name__)
 app.register_blueprint(oauth_bp, url_prefix='/oauth')
@@ -128,7 +130,7 @@ def cancelar_por_timeout(numero_cliente):
     try:
         meta_send(numero_cliente,
             "Tu sesión expiró por inactividad. Escribe *Hola* si quieres comunicarte con "
-            "Wasapeame o el código del negocio para empezar de nuevo.")
+            "Wappi o el código del negocio para empezar de nuevo.")
     except Exception:
         pass
 
@@ -163,6 +165,7 @@ def cancelar_timer_relay(numero_cliente):
 
 
 iniciar_recordatorios(meta_send)
+iniciar_maverick()
 
 LIMITE_MSG = 1500
 
@@ -365,7 +368,7 @@ def webhook():
         # ── SIN CÓDIGO ──
         if not _ya_conocido(numero_cliente):
             meta_send(numero_cliente,
-                "Bienvenido a *Wasapeame* 👋\n\n"
+                "Bienvenido a *Wappi* 👋\n\n"
                 "Conecta con tu negocio favorito directo desde WhatsApp.\n"
                 "🛒 Pedidos  |  📅 Citas  |  💬 Consultas\n\n"
                 "🔑 Escribe el *código del negocio* para comenzar.\n"
@@ -436,7 +439,7 @@ def privacidad():
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Política de Privacidad — Wasapeame</title>
+  <title>Política de Privacidad — Wappi</title>
   <link rel="icon" type="image/png" sizes="512x512" href="/static/favicon.png"/>
   <link rel="apple-touch-icon" sizes="180x180" href="/static/favicon.png"/>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
@@ -464,7 +467,7 @@ def privacidad():
 </head>
 <body>
   <header>
-    <img src="/static/wpicon.png" alt="Wasapeame" style="height:130px;width:auto;mix-blend-mode:lighten;"/>
+    <img src="/static/wpicon.png" alt="Wappi" style="height:130px;width:auto;mix-blend-mode:lighten;"/>
   </header>
   <main>
     <div class="badge">Privacidad</div>
@@ -472,7 +475,7 @@ def privacidad():
     <p class="updated">Última actualización: junio 2026</p>
     <section>
       <h2>¿Quiénes somos?</h2>
-      <p>Wasapeame es una plataforma de asistente por WhatsApp para negocios locales en República Dominicana. Facilitamos la gestión de citas y pedidos a través de mensajería automatizada.</p>
+      <p>Wappi es una plataforma de asistente por WhatsApp para negocios locales en República Dominicana. Facilitamos la gestión de citas y pedidos a través de mensajería automatizada.</p>
     </section>
     <section>
       <h2>¿Qué datos recopilamos?</h2>
@@ -494,13 +497,13 @@ def privacidad():
     </section>
     <section>
       <h2>¿Compartimos tus datos?</h2>
-      <p>No. Wasapeame no vende ni comparte tus datos. Los únicos servicios externos son Google Calendar y la API de WhatsApp Business de Meta.</p>
+      <p>No. Wappi no vende ni comparte tus datos. Los únicos servicios externos son Google Calendar y la API de WhatsApp Business de Meta.</p>
     </section>
     <section>
       <h2>¿Cómo puedes revocar el acceso?</h2>
       <ul>
         <li>Ve a <a href="https://myaccount.google.com/permissions" target="_blank">myaccount.google.com/permissions</a>.</li>
-        <li>Busca <strong>Wasapeame</strong> y selecciona <em>Quitar acceso</em>.</li>
+        <li>Busca <strong>Wappi</strong> y selecciona <em>Quitar acceso</em>.</li>
       </ul>
     </section>
     <section>
@@ -508,10 +511,60 @@ def privacidad():
       <p>Escríbenos a <a href="mailto:hola@wasapeame.co">hola@wasapeame.co</a>.</p>
     </section>
   </main>
-  <footer>© 2026 Wasapeame · <a href="mailto:hola@wasapeame.co">hola@wasapeame.co</a></footer>
+  <footer>© 2026 Wappi · <a href="mailto:hola@wasapeame.co">hola@wasapeame.co</a></footer>
 </body>
 </html>"""
     return make_response(html, 200, {"Content-Type": "text/html; charset=utf-8"})
+
+
+AGENTS_PIN = os.getenv("AGENTS_PIN", "wasapeame2026")
+
+
+@app.route("/agents")
+def agents_dashboard():
+    return render_template("agents.html")
+
+
+@app.route("/agents/api/logs")
+def agents_api_logs():
+    pin = request.args.get("pin", "")
+    if pin != AGENTS_PIN:
+        return jsonify({"error": "unauthorized"}), 403
+
+    filtro = request.args.get("filtro", "todos")
+    if filtro == "maverick":
+        rows = execute("SELECT * FROM agentes_log WHERE agente = 'maverick' ORDER BY creado_en DESC LIMIT 100", fetch="all") or []
+    elif filtro == "indiana":
+        rows = execute("SELECT * FROM agentes_log WHERE agente = 'indiana' ORDER BY creado_en DESC LIMIT 100", fetch="all") or []
+    elif filtro == "sin_resolver":
+        rows = execute("SELECT * FROM agentes_log WHERE resuelto = FALSE ORDER BY creado_en DESC LIMIT 100", fetch="all") or []
+    else:
+        rows = execute("SELECT * FROM agentes_log ORDER BY creado_en DESC LIMIT 100", fetch="all") or []
+
+    logs = []
+    for r in rows:
+        logs.append({
+            "id": r["id"],
+            "agente": r["agente"],
+            "tipo": r["tipo"],
+            "descripcion": r["descripcion"],
+            "resuelto": r["resuelto"],
+            "creado_en": r["creado_en"].isoformat() if r["creado_en"] else None,
+        })
+    return jsonify({"logs": logs})
+
+
+@app.route("/agents/api/limpiar", methods=["POST"])
+def agents_api_limpiar():
+    pin = request.args.get("pin", "")
+    if pin != AGENTS_PIN:
+        return jsonify({"error": "unauthorized"}), 403
+    execute("DELETE FROM conversaciones_citas")
+    execute("DELETE FROM conversaciones_pedidos")
+    execute("DELETE FROM citas")
+    from maverick import _log
+    _log("maverick", "limpieza_manual", "Limpieza manual desde dashboard — citas y conversaciones borradas", resuelto=True)
+    return jsonify({"mensaje": "Listo — todo limpiado"})
 
 
 if __name__ == "__main__":

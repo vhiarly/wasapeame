@@ -1,151 +1,263 @@
 # CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-# Wasapeame — CLAUDE.md
-# Plataforma de WhatsApp bots para negocios locales — caso de uso inicial: colmados dominicanos
-# Stack: Python · Flask · Twilio · PostgreSQL · Azure App Service
+# Wasapeame — Plataforma de IA en WhatsApp para MiPYMEs
+# Stack: Python · Flask · Meta Cloud API · PostgreSQL · Azure App Service · Anthropic Claude · Azure Speech
 
 ---
 
 ## Commands
 
 ```bash
-# Install dependencies
+# Instalar dependencias
 pip install -r requirements.txt
 
-# Run locally (dev)
-DATABASE_URL=postgresql://... python app.py          # port 3000
+# Correr localmente (dev)
+DATABASE_URL=postgresql://... python app.py          # puerto 3000
 
-# Run in production mode
+# Correr en producción
 DATABASE_URL=postgresql://... gunicorn --bind=0.0.0.0:8000 app:app
 
-# Apply DB schema + seed negocios.json (safe to re-run)
+# Aplicar migraciones + seed (seguro re-correr)
 DATABASE_URL=postgresql://... python migrate.py
 
-# Run tests (requires live DB)
+# Correr tests (requiere DB activa)
 DATABASE_URL=postgresql://... python test_router.py
 
-# Local tunnel for Twilio webhooks (ngrok)
-python tunnel.py   # prints public URL to paste into Twilio sandbox config
+# Deploy a Azure (crea zip + sube + verifica /ping)
+./deploy.sh
+
+# Tunnel local para webhook de Meta
+python tunnel.py   # imprime URL pública para pegar en Meta App Dashboard
 ```
 
 ---
 
-## Architecture
+## Variables de entorno requeridas
 
-### Message routing (`app.py`)
+```
+DATABASE_URL              — PostgreSQL connection string
+META_ACCESS_TOKEN         — System User Token de Meta (necesita whatsapp_business_management)
+META_PHONE_NUMBER_ID      — ID del número de WhatsApp en Meta Business
+META_WABA_ID              — WhatsApp Business Account ID (1323108735812246)
+META_VERIFY_TOKEN         — Token de verificación del webhook (default: wasapeame_verify_2026)
+ANTHROPIC_API_KEY         — API key de Anthropic para Claude (asistente IA + transcripción)
+AZURE_SPEECH_KEY          — Azure Speech Services (transcripción médica, recurso wasapeame-speech, westeurope)
+GOOGLE_CLIENT_ID          — OAuth Google Calendar
+GOOGLE_CLIENT_SECRET      — OAuth Google Calendar
+```
 
-Every Twilio webhook hits `POST /webhook`. Routing priority, top to bottom:
+---
 
-1. **Sender is a registered business number** (`es_numero_negocio`) → dispatch to `manejar_negocio` (pedidos) or `manejar_negocio_citas` (citas), or fall through to `consultar_ia`.
-2. **Active admin session** (`tiene_sesion_admin_citas`) → `manejar_negocio_citas`.
-3. **Message starts with a business code** (`detectar_codigo`) OR **client has an open conversation** in DB → `manejar_pedido` or `manejar_cita` depending on `negocio.modo`.
-4. **No code, no active session** → welcome message (first time) or prompt to enter a code.
+## Arquitectura
 
-After a pedidos response, the in-memory `threading.Timer` is reset to `TIMEOUT_SEGUNDOS` (180 s). On timeout, `cancelar_por_timeout` fires and delegates to `cancelar_timeout` in `flujo_pedidos.py`, which advances the queue correctly.
+### Envío de mensajes — `meta_send(to, body, media_id, media_type)`
 
-### Two conversation modes
+Toda salida de mensajes pasa por `meta_send()` en `app.py`. Llama directamente a:
+```
+POST https://graph.facebook.com/v19.0/{META_PHONE_NUMBER_ID}/messages
+Authorization: Bearer {META_ACCESS_TOKEN}
+```
 
-Each negocio has `modo = "pedidos"` or `modo = "citas"`. State lives in separate tables:
+Soporta tres tipos:
+- **Texto:** `type: text` con `body`
+- **Imagen:** `type: image` con `media_id` y caption opcional
+- **Audio:** `type: audio` con `media_id`
 
-| Mode | State table | Flow module |
+Límite real: **1,500 caracteres** por mensaje. `_enviar()` fragmenta automáticamente por líneas.
+
+Meta **sí renderiza** formato en WhatsApp: `*negrita*`, `_cursiva_`. Úsalos libremente.
+
+### Routing de mensajes (`app.py → webhook POST`)
+
+Prioridad de arriba hacia abajo:
+
+1. **Relay activo** (`manejar_relay_mensaje`) — chat directo negocio↔cliente. Tiene timeout propio de 30 min.
+2. **Emisor es número de negocio registrado** (`es_numero_negocio`) → `manejar_negocio` (pedidos) o `manejar_negocio_citas` (citas). Audio de médico → `procesar_nota_voz_medica`.
+3. **Sesión admin activa** (`tiene_sesion_admin_citas`) → `manejar_negocio_citas`.
+4. **Mensaje interactivo (WhatsApp Flow)** `nfm_reply` → `manejar_flow_cita`.
+5. **Flujo de registro activo** (`tiene_flujo_registro`) → `manejar_registro`.
+6. **Mensaje empieza con código conocido** (`detectar_codigo`) o **flujo abierto** → `manejar_pedido` o `manejar_cita` según `negocio.modo`.
+7. **Sin código, primera vez** → mensaje de bienvenida + inserción en `clientes_vistos`.
+8. **Sin código, cliente conocido** → menú de orientación o `_msg_perdido()`.
+
+### Dos modos de negocio
+
+| Modo | Tabla de estado | Módulo |
 |---|---|---|
-| pedidos | `conversaciones_pedidos` | `flujo_pedidos.py` |
-| citas | `conversaciones_citas` | `flujo_citas.py` |
+| `pedidos` | `conversaciones_pedidos` | `flujo_pedidos.py` |
+| `citas` | `conversaciones_citas` | `flujo_citas.py` |
 
 ### State machine — pedidos (`flujo_pedidos.py`)
 
-State is a string stored in `conversaciones_pedidos.estado`. The full chain:
-
 ```
 pidiendo
-  ├─ (libra product selected by number) → esperando_cantidad_libra
-  │     └─ (product is rebanable) → esperando_rebanado
-  ├─ (rebanable product selected by text) → esperando_rebanado
-  │     └─ (cola_rebanado not empty) → loops through queue
-  ├─ (ambiguous number for libra product) → esperando_aclaracion_unidad
+  ├─ (producto libra seleccionado por número) → esperando_cantidad_libra
+  │     └─ (rebanable) → esperando_rebanado
+  ├─ (rebanable por texto) → esperando_rebanado
+  │     └─ (cola_rebanado no vacía) → loop
+  ├─ (número ambiguo libra) → esperando_aclaracion_unidad
   └─ (confirmar) → esperando_confirmacion
         └─ esperando_direccion → esperando_referencia
-                                          ├─ (requiere_comprobante=false) → pedido_enviado
-                                          │     ├─ (ajustar) → ajustando → pedido_enviado
-                                          │     └─ (negocio says "no hay X") → esperando_decision
-                                          └─ (requiere_comprobante=true) → esperando_comprobante
-                                                └─ (foto recibida) → pedido_enviado
+                                      ├─ (sin comprobante) → pedido_enviado
+                                      │     ├─ (ajustar) → ajustando → pedido_enviado
+                                      │     └─ (no hay X) → esperando_decision
+                                      └─ (con comprobante) → esperando_comprobante
+                                            └─ (foto recibida) → pedido_enviado
 ```
 
-`item_pendiente_rebanado` (JSONB column) is dual-purpose: in `esperando_rebanado` it holds the item awaiting a slicing answer; in `esperando_cantidad_libra` / `esperando_aclaracion_unidad` it holds quantity metadata. The states are exclusive so this works, but the column is semantically overloaded.
+`item_pendiente_rebanado` (JSONB) es dual-purpose: guarda el item en `esperando_rebanado` y metadata de cantidad en `esperando_cantidad_libra`. Los estados son exclusivos — funciona pero la columna está semánticamente sobrecargada.
 
-### Business data flow
+### Timers
 
-`negocios.json` is **seed-only**. `migrate.py` inserts with `ON CONFLICT DO NOTHING`, so changes to `negocios.json` after the first migration are silently ignored. Live catalog prices, stock (`cantidad`), and `activo` flags are in the `catalogo` table and must be updated via SQL.
+Dos sistemas de timer en memoria (se pierden en restart):
 
-`negocio_router.obtener_negocio` issues 4 sequential SELECT queries (negocios + catalogo + servicios + horarios) on every call. It is called multiple times per webhook. There is no cache.
+- **`timers`** — timeout de conversación de pedidos. 180s de inactividad → `cancelar_por_timeout()`.
+- **`timers_relay`** — timeout de chat relay negocio↔cliente. 1800s (30 min).
 
-### Queue / turn system
+En restart: `DELETE FROM conversaciones_pedidos WHERE timeout_en < NOW()` limpia sesiones expiradas, pero sesiones activas pierden su timer hasta el próximo mensaje.
 
-`pedidos` rows are ordered FIFO by `creado_en`. `_get_cola(codigo)` returns all `numero_cliente` values in order. The first in the list is the active order being prepared. On `listo`, the business dispatches the first and the next is notified. Turns are tracked in `contadores_turnos` (resets daily via `fecha` column).
+### Mensajes interactivos (botones y listas)
 
-### Appointment reminders (`flujo_citas.py`)
+El flujo de citas usa mensajes interactivos nativos de WhatsApp en lugar de texto plano. Implementado en `flujo_citas.py`:
 
-`iniciar_recordatorios` starts a daemon thread at startup that polls every 60 s. Rule: if the appointment is ≤ 24 h away → reminder 3 h before; otherwise → reminder 23 h after booking. Reminder state is tracked with `citas.recordatorio_enviado`.
+```python
+_enviar_botones(numero, texto, [(id, titulo), ...])   # máx 3 botones
+_enviar_lista(numero, texto, [(id, titulo, desc), ...])  # hasta 10 filas por sección
+_enviar_lista_servicios(numero, negocio)
+_enviar_lista_lugares(numero, lugares)
+_enviar_lista_dias(numero, negocio, duracion_min, es_presencial)
+_enviar_lista_horas(numero, negocio, fecha, duracion_min, es_presencial)
+```
 
-### Timeout system (`app.py`)
+Las respuestas llegan como `msg_type = "interactive"` con `button_reply.id` o `list_reply.id`. `app.py` las normaliza en `body_raw` y las procesa igual que texto, con `is_interactive_id = True` para saltar la sanitización de markdown.
 
-In-memory `timers` dict of `threading.Timer` objects, keyed by `numero_cliente`. **The dict is lost on every restart.** On restart, `app.py` runs `DELETE FROM conversaciones_pedidos WHERE timeout_en < NOW()` to clean up expired sessions, but active sessions started before the restart have no timer running until the client sends another message.
+El código de `manejar_flow_cita` y `crear_flow_negocio.py` existe en el repo pero **no está activo** — quedó de un experimento con WhatsApp Flows que no se llegó a usar.
+
+### Transcripción médica (`transcripcion_medica.py`)
+
+Doctor envía audio de voz → Azure Speech (`es-DO`, recurso `wasapeame-speech`, westeurope, F0 5h/mes) → Claude Haiku → historia clínica estructurada en PDF → enviada por WhatsApp al doctor → doctor puede reenviarla a un paciente.
+
+### Nota del paciente
+
+En flujo `citas` (modo ME), antes de confirmar la cita el cliente puede agregar: texto libre, nota de voz, o saltar. Guardada en `citas.nota_paciente` y notificada al doctor.
+
+### Google Calendar / OAuth (`oauth_routes.py`, `google_calendar.py`)
+
+Negocios de tipo `citas` pueden conectar Google Calendar para crear eventos y generar links de Google Meet automáticamente. OAuth flow en `/oauth/...`. Tokens guardados en DB.
+
+### Relay (`flujo_citas.py`)
+
+Chat directo entre negocio y cliente fuera del flujo estándar. Se activa con `chat <turno>` desde el negocio. Timeout de 30 min. El negocio puede cerrar con `cerrar chat <turno>`.
 
 ---
 
-## Key Constraints
+## Datos de negocios
 
-- Messages must be plain text — Twilio does not render markdown.
-- States must be simple strings, not nested objects.
-- `inventario.py` is legacy dead code — not imported anywhere. `flujo_pedidos.py` carries its own inline `_ALIAS` dict.
-- Do not use async/await.
-- `negocios.json` is for initial seed only — never treat it as the source of truth for live data.
+`negocios.json` es **seed-only**. `migrate.py` inserta con `ON CONFLICT DO NOTHING` — cambios posteriores al seed inicial son ignorados silenciosamente. Precios, stock (`cantidad`) y flags `activo` van directo por SQL.
+
+`negocio_router.obtener_negocio` hace 4 SELECT secuenciales (negocios + catalogo + servicios + horarios) en cada llamada. Sin caché. Llamado múltiples veces por webhook.
+
+---
+
+## Restricciones clave
+
+- No usar async/await.
+- Estados deben ser strings simples, no objetos anidados.
+- `inventario.py` es código muerto — no importado en ningún lado.
+- `negocios.json` nunca es fuente de verdad para datos en vivo.
+- `twilio` sigue en `requirements.txt` pero **no se usa** — puede eliminarse en limpieza futura.
+- Webhook responde siempre `200 OK` aunque haya error interno (Meta reintenta si recibe != 200).
 
 ---
 
 ## Quick Reference
 
 ```
-Repo:            github.com/vhiarly/wasapeame
-Deploy:          Azure App Service — resource group: wasapeame-rg, region: West Europe
-Twilio sender:   +849-265-9906    (número dominicano aprobado por Meta — TWILIO_WHATSAPP_NUMBER=whatsapp:+18492659906)
-Endpoint:        POST /webhook
+Repo:              github.com/vhiarly/wasapeame
+Deploy:            Azure App Service — wasapeame-rg, West Europe
+URL producción:    https://wasapeame.co
+Webhook endpoint:  POST https://wasapeame.co/webhook
+META_WABA_ID:      1323108735812246
+Negocios activos:  SE1 (Pilar), ME1 (Dr. Jim Marmolejos), ME2 (Dr. Feris Olivero)
 ```
 
 ---
 
-## Envío de mensajes salientes (Twilio / WhatsApp)
+## Envío de mensajes salientes
 
-Reglas aprendidas en producción — seguirlas siempre al escribir scripts de envío:
+**Siempre usar `meta_send()` o `_enviar()` (para textos largos) — nunca llamar a la API de Meta directamente desde módulos.**
 
-**1. `from_` fijo:**
+Para scripts de onboarding o envíos manuales fuera del webhook:
+
 ```python
-from_ = "whatsapp:+18492659906"
+import os, requests
+TOKEN    = os.getenv("META_ACCESS_TOKEN")
+PHONE_ID = os.getenv("META_PHONE_NUMBER_ID")
+
+def send(to, body):
+    requests.post(
+        f"https://graph.facebook.com/v19.0/{PHONE_ID}/messages",
+        headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+        json={"messaging_product": "whatsapp", "to": to, "type": "text",
+              "text": {"body": body, "preview_url": False}},
+        timeout=10
+    )
 ```
 
-**2. Límite de 1,600 caracteres por mensaje.** Fragmentar en partes con `time.sleep(2)` entre cada una.
-
-**3. Media (PDF, imagen) — usar Google Drive con URL de descarga directa:**
+Media (PDF, imagen) — usar Google Drive URL de descarga directa:
 ```
 https://drive.google.com/uc?export=download&id=FILE_ID
 ```
-Nunca el link del visor (`/file/d/FILE_ID/view`) — Twilio no puede descargar desde ahí.
+Nunca el link del visor — Meta no puede descargar desde ahí.
 
-**4. Ventana de 24h de Meta.** El kit de bienvenida solo puede enviarse como respuesta inmediata cuando el cliente escribe por primera vez. Fuera de esa ventana, Twilio rechaza mensajes salientes que no sean templates aprobados.
+Ventana de 24h de Meta: mensajes salientes fuera de la ventana deben ser templates aprobados.
 
-**5. Flujo estándar de onboarding:**
-```python
-msg1 = client.messages.create(body=parte1, from_=FROM, to=TO)   # datos del negocio
-time.sleep(2)
-msg2 = client.messages.create(body=parte2, from_=FROM, to=TO)   # comandos admin
-time.sleep(2)
-msg3 = client.messages.create(body="", media_url=[GDRIVE_URL], from_=FROM, to=TO)  # PDF
-```
+---
 
-**Script de referencia:** `.claude/SESSION_2026-06-03.md`
+## Agentes
+
+| Agente | Archivo | Estado | Función |
+|---|---|---|---|
+| **Maverick** | `maverick.py` | ✅ Activo | Monitoreo cada 5 min: pedidos/citas atascadas, sesiones expiradas, pagos pendientes. Auto-limpia citas >2h. Alerta por WhatsApp a DUEÑO_WHATSAPP. |
+| **Indiana** | `flujo_registro.py` | ✅ Activo | Onboarding de negocios por WhatsApp. Flujo ~7 mensajes: nombre → modo → categoría → número → horario/catálogo → servicios → confirmación → crea negocio en DB. |
+| **Phoenix** | — | 🔨 Pendiente | Fallback inteligente para clientes perdidos. Solo activar para DUEÑO_WHATSAPP primero. |
+| **Viper** | — | 🔨 Pendiente | Reportes semanales al dueño del negocio. Esperar feedback de clientes para diseñarlo. |
+
+Dashboard de agentes: `https://wasapeame.co/agents` — PIN: `AGENTS_PIN` env var (default `wasapeame2026`)
+
+### Maverick — detalles
+- Corre en daemon thread cada 5 minutos (`INTERVALO_SEGUNDOS = 300`)
+- Tabla de log: `agentes_log (id, agente, tipo, descripcion, detalle JSONB, resuelto, creado_en)`
+- Auto-resuelve: limpia citas atascadas >2h, sesiones admin expiradas
+- Alerta (no resuelve): pedidos atascados >40min, pagos pendientes >2h
+
+### Indiana — detalles
+- Reescritura completa de `flujo_registro.py` (2026-06-08)
+- Tabla: `conversaciones_registro` — requiere columna `datos JSONB` (se crea en startup de app.py con ALTER TABLE IF NOT EXISTS)
+- Parsers naturales: horario ("lunes a viernes 9am-6pm"), servicios ("Corte 30min RD$350 / Barba 20min RD$200"), catálogo ("Arroz RD$45 libra")
+- Al confirmar: crea negocio en `negocios` + `horarios`/`servicios` (citas) o `catalogo`/`contadores_turnos` (pedidos)
+- Genera código automático (tipo + número secuencial) y PIN de 6 dígitos
+- Notifica a DUEÑO_WHATSAPP y registra en `agentes_log`
+
+### Dashboard — detalles
+- `GET /agents` → `templates/agents.html` (PIN protegido)
+- `GET /agents/api/logs?pin=&filtro=` → JSON con últimos 100 eventos
+- `POST /agents/api/limpiar?pin=` → borra TODAS las citas y conversaciones (para dev/test)
+- Filtros: todos, maverick, indiana, sin_resolver
+
+---
+
+## Pendientes técnicos
+
+- [ ] **QA completo ME2** — probar en WhatsApp real con Dr. Feris (+18096025206)
+- [ ] **Kit bienvenida ME2** — enviar a Dr. Feris tras QA
+- [ ] **Google OAuth verificación** — revisar estado en Google Cloud Console (~2026-06-09)
+- [ ] **Template recordatorio_cita** — en revisión en Meta (aprobación pendiente)
+- [ ] **GBP verificación Dr. Jim** — postal con código 5 dígitos (5-14 días desde ~2026-06-07)
+- [ ] **Test Indiana E2E** — registrar un negocio de prueba completo por WhatsApp
+- [ ] **Escalación 2h no-show SE1** — cliente escribe `no show <código>`, escalar si negocio no responde en 2h
+- [ ] **Test E2E cita online SE1** — evento en Calendar de Pilar + Meet link al cliente
+- [ ] **Zero-downtime deploy** — priorizar con 20+ negocios (Azure deployment slots)
+- [ ] **Stripe** — cobro mensual a negocios tras validar piloto
 
 ---
 
@@ -195,4 +307,4 @@ Antes de escribir cualquier código:
 
 ## 5. SESSION HANDOFF
 
-Al terminar cada sesión, escribe un resumen de máximo 200 tokens en `.claude/SESSION_[fecha].md` con: qué se construyó, qué quedó incompleto, y qué hacer primero la próxima sesión.
+Al terminar cada sesión, escribe un resumen de máximo 200 tokens en `~/Documents/vhiarlyob/Proyectos/Wasapeame/Session_[fecha].md` con: qué se construyó, qué quedó incompleto, y qué hacer primero la próxima sesión.

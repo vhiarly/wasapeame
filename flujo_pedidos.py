@@ -789,7 +789,7 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
             _enviar_pedido_a_negocio(negocio["numero_negocio"], numero_cliente, pedido, twilio_send)
 
         r += "\n\n1. Ajustar pedido\n2. Cancelar"
-        r += "\n\n_Wasapeame no se responsabiliza por la calidad ni contenido del pedido._"
+        r += "\n\n_Wappi no se responsabiliza por la calidad ni contenido del pedido._"
         return r
 
     # ── ESPERANDO COMPROBANTE ──

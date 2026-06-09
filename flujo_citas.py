@@ -154,7 +154,7 @@ def _horas_del_dia(negocio, fecha, duracion_min, es_presencial=False):
         hora_str = _mh(t)
         if not _bloqueada(negocio["codigo"], fecha, hora_str, duracion_min, es_presencial):
             slots.append(hora_str)
-        t += 30
+        t += duracion_min
     return slots
 
 
@@ -173,9 +173,11 @@ def _dias_del_negocio(negocio, duracion_min, es_presencial=False):
 
 # ── Textos ────────────────────────────────────────────────────────────────────
 
-def _txt_servicios(negocio, tipo=None):
-    lineas = [f"Nuestros servicios:\n"]
+def _txt_servicios(negocio, tipo=None, categoria=None):
     activos = [(c, s) for c, s in negocio.get("servicios", {}).items() if s.get("activo", True)]
+    if categoria:
+        activos = [(c, s) for c, s in activos if s.get("categoria") == categoria]
+    lineas = ["Nuestros servicios:\n"]
     for i, (_, s) in enumerate(activos, 1):
         lineas.append(f"{i}. {s['nombre']}")
     if tipo == "online" and negocio.get("costo_online"):
@@ -183,6 +185,31 @@ def _txt_servicios(negocio, tipo=None):
     elif tipo == "presencial" and negocio.get("costo_presencial"):
         lineas.append(f"\nCosto de consultoría: *${negocio['costo_presencial']:,} DOP*")
     lineas += ["", "Escribe el *numero* del servicio o *cancelar* para salir."]
+    return "\n".join(lineas)
+
+
+def _categorias_del_negocio(negocio):
+    cats = set()
+    for sv in negocio.get("servicios", {}).values():
+        if sv.get("activo", True) and sv.get("categoria"):
+            cats.add(sv["categoria"])
+    return sorted(cats)
+
+
+def _enviar_lista_categorias(numero_cliente, negocio):
+    cats = _categorias_del_negocio(negocio)
+    if not cats:
+        return False
+    filas = [(cat.lower(), cat, "") for cat in cats]
+    return _enviar_lista(numero_cliente, "¿Qué tipo de servicio necesitas?", filas, "Ver categorías")
+
+
+def _txt_categorias(negocio):
+    cats = _categorias_del_negocio(negocio)
+    lineas = ["¿Qué tipo de servicio necesitas?\n"]
+    for i, cat in enumerate(cats, 1):
+        lineas.append(f"{i}. {cat}")
+    lineas.append("\nEscribe el *número* de la categoría.")
     return "\n".join(lineas)
 
 def _txt_dias(negocio, duracion_min, es_presencial=False):
@@ -673,6 +700,52 @@ def tiene_sesion_admin_citas(numero):
 
 # ── Recordatorios ────────────────────────────────────────────────────────────
 
+def _enviar_recordatorio_template(numero, servicio, negocio, fecha_str, hora_str):
+    import requests as _req
+    token    = os.getenv("META_ACCESS_TOKEN")
+    phone_id = os.getenv("META_PHONE_NUMBER_ID")
+    phone    = numero.replace("+", "").strip()
+
+    # Fecha legible: "2026-06-10" → "martes 10 de junio"
+    DIAS = ["lunes","martes","miércoles","jueves","viernes","sábado","domingo"]
+    MESES = ["enero","febrero","marzo","abril","mayo","junio",
+             "julio","agosto","septiembre","octubre","noviembre","diciembre"]
+    try:
+        from datetime import date as _date
+        d = _date.fromisoformat(fecha_str)
+        fecha_legible = f"{DIAS[d.weekday()]} {d.day} de {MESES[d.month-1]}"
+    except Exception:
+        fecha_legible = fecha_str
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone,
+        "type": "template",
+        "template": {
+            "name": "recordatorio_cita",
+            "language": {"code": "es"},
+            "components": [{
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": servicio},
+                    {"type": "text", "text": negocio},
+                    {"type": "text", "text": fecha_legible},
+                    {"type": "text", "text": hora_str},
+                ]
+            }]
+        }
+    }
+    try:
+        resp = _req.post(
+            f"https://graph.facebook.com/v19.0/{phone_id}/messages",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload, timeout=10
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"[TEMPLATE] Error enviando recordatorio a {numero}: {e}")
+
+
 def _verificar_recordatorios(twilio_send):
     now = datetime.now(TZ_RD)
     citas = execute("""
@@ -699,10 +772,12 @@ def _verificar_recordatorios(twilio_send):
         horas_hasta = (cita_dt - booking_dt).total_seconds() / 3600
         reminder_dt = (cita_dt - timedelta(hours=3)) if horas_hasta <= 24 else (booking_dt + timedelta(hours=23))
         if now >= reminder_dt:
-            twilio_send(
+            _enviar_recordatorio_template(
                 cita["numero_cliente"],
-                f"Recordatorio: tu cita de {cita['nombre_servicio']} en {cita['nombre_negocio']} "
-                f"es el {fecha_str} a las {_fmt12(cita['hora'])}."
+                cita["nombre_servicio"],
+                cita["nombre_negocio"],
+                fecha_str,
+                _fmt12(cita["hora"])
             )
             execute("UPDATE citas SET recordatorio_enviado = TRUE WHERE id = %s", (cita["id"],))
 
@@ -1101,6 +1176,61 @@ def _procesar_confirmacion(codigo, numero_cliente, estado, servicio, negocio, tw
 
 # ── Mensajes interactivos (botones y listas) ──────────────────────────────────
 
+def _enviar_cta_url(numero_cliente, texto, boton_texto, url):
+    token    = os.getenv("META_ACCESS_TOKEN")
+    phone_id = os.getenv("META_PHONE_NUMBER_ID")
+    if not token or not phone_id:
+        return
+    phone = numero_cliente.replace("+", "").strip()
+    try:
+        _req.post(
+            f"https://graph.facebook.com/v19.0/{phone_id}/messages",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={
+                "messaging_product": "whatsapp",
+                "to": phone,
+                "type": "interactive",
+                "interactive": {
+                    "type": "cta_url",
+                    "body": {"text": texto},
+                    "action": {
+                        "name": "cta_url",
+                        "parameters": {
+                            "display_text": boton_texto[:20],
+                            "url": url
+                        }
+                    }
+                }
+            },
+            timeout=10
+        )
+    except Exception as e:
+        print(f"[CTA] Error enviando a {numero_cliente}: {e}")
+
+
+def _meta_send_location(numero_cliente, lat, lng, nombre, direccion=""):
+    token    = os.getenv("META_ACCESS_TOKEN")
+    phone_id = os.getenv("META_PHONE_NUMBER_ID")
+    if not token or not phone_id:
+        return
+    phone = numero_cliente.replace("+", "").strip()
+    try:
+        _req.post(
+            f"https://graph.facebook.com/v19.0/{phone_id}/messages",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={
+                "messaging_product": "whatsapp",
+                "to": phone,
+                "type": "location",
+                "location": {"latitude": lat, "longitude": lng,
+                             "name": nombre, "address": direccion}
+            },
+            timeout=10
+        )
+    except Exception as e:
+        print(f"[LOCATION] Error enviando pin a {numero_cliente}: {e}")
+
+
 def _meta_interactive(numero_cliente, interactive_payload):
     token    = os.getenv("META_ACCESS_TOKEN")
     phone_id = os.getenv("META_PHONE_NUMBER_ID")
@@ -1153,14 +1283,29 @@ def _enviar_lista(numero_cliente, texto, filas, boton_texto="Ver opciones"):
     })
 
 
-def _enviar_lista_servicios(numero_cliente, negocio):
+def _enviar_lista_servicios(numero_cliente, negocio, categoria=None):
     servicios = [(c, sv) for c, sv in negocio.get("servicios", {}).items()
                  if sv.get("activo", True)]
-    if not servicios or len(servicios) > 10:
+    if categoria:
+        servicios = [(c, sv) for c, sv in servicios if sv.get("categoria") == categoria]
+    if not servicios:
         return False
     filas = [(clave, sv["nombre"], sv.get("descripcion") or f"{sv['duracion_minutos']} min")
              for clave, sv in servicios]
     return _enviar_lista(numero_cliente, "Elige tu servicio:", filas, "Ver servicios")
+
+
+def _iniciar_servicio(numero_cliente, negocio, estado):
+    cats = _categorias_del_negocio(negocio)
+    if cats:
+        estado["estado"] = "esperando_categoria"
+        _set_estado_cita(numero_cliente, estado)
+        enviado = _enviar_lista_categorias(numero_cliente, negocio)
+        return None if enviado else _txt_categorias(negocio)
+    estado["estado"] = "esperando_servicio"
+    _set_estado_cita(numero_cliente, estado)
+    enviado = _enviar_lista_servicios(numero_cliente, negocio)
+    return None if enviado else _txt_servicios(negocio, estado.get("tipo"))
 
 
 def _enviar_lista_lugares(numero_cliente, lugares):
@@ -1336,24 +1481,15 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
                     f"1. Online (Google Meet)\n2. {label_presencial}\n\n"
                     "Escribe *1* o *2*. Escribe *cancelar* para salir.")
 
-        estado["estado"] = "esperando_servicio"
-        _set_estado_cita(numero_cliente, estado)
         twilio_send(numero_cliente, bienvenida)
-        enviado = _enviar_lista_servicios(numero_cliente, negocio)
-        if enviado:
-            return None
-        return _txt_servicios(negocio)
+        return _iniciar_servicio(numero_cliente, negocio, estado)
 
     # ── ESPERANDO TIPO ──
     if s == "esperando_tipo":
         es_domicilio = any(l.get("tipo") == "domicilio" for l in lugares)
         if msg in ("1", "online"):
-            estado.update({"estado": "esperando_servicio", "tipo": "online"})
-            _set_estado_cita(numero_cliente, estado)
-            enviado = _enviar_lista_servicios(numero_cliente, negocio)
-            if enviado:
-                return None
-            return _txt_servicios(negocio, "online")
+            estado["tipo"] = "online"
+            return _iniciar_servicio(numero_cliente, negocio, estado)
         if msg in ("2", "presencial"):
             if es_domicilio:
                 estado.update({"estado": "esperando_direccion_domicilio", "tipo": "presencial"})
@@ -1374,33 +1510,56 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
 
     # ── ESPERANDO DIRECCIÓN DOMICILIO ──
     if s == "esperando_direccion_domicilio":
-        estado.update({"estado": "esperando_servicio", "lugar": msg})
-        _set_estado_cita(numero_cliente, estado)
-        enviado = _enviar_lista_servicios(numero_cliente, negocio)
-        if enviado:
-            return None
-        return _txt_servicios(negocio, estado.get("tipo"))
+        estado["lugar"] = msg
+        return _iniciar_servicio(numero_cliente, negocio, estado)
 
     # ── ESPERANDO LUGAR ──
     if s == "esperando_lugar":
         if msg.isdigit() and 1 <= int(msg) <= len(lugares):
-            lugar = _lugar_nombre(lugares[int(msg) - 1])
-            estado.update({"estado": "esperando_servicio", "lugar": lugar})
-            _set_estado_cita(numero_cliente, estado)
-            enviado = _enviar_lista_servicios(numero_cliente, negocio)
+            estado["lugar"] = _lugar_nombre(lugares[int(msg) - 1])
+            return _iniciar_servicio(numero_cliente, negocio, estado)
+        return f"Escribe un numero del 1 al {len(lugares)}."
+
+    # ── ESPERANDO CATEGORÍA ──
+    if s == "esperando_categoria":
+        cats = _categorias_del_negocio(negocio)
+        cats_lower = {cat.lower(): cat for cat in cats}
+        categoria = None
+        if msg in cats_lower:
+            categoria = cats_lower[msg]
+        elif msg.isdigit():
+            idx = int(msg) - 1
+            if 0 <= idx < len(cats):
+                categoria = cats[idx]
+        else:
+            for cat in cats:
+                if msg in cat.lower():
+                    categoria = cat
+                    break
+        if not categoria:
+            enviado = _enviar_lista_categorias(numero_cliente, negocio)
             if enviado:
                 return None
-            return _txt_servicios(negocio, estado.get("tipo"))
-        return f"Escribe un numero del 1 al {len(lugares)}."
+            return _txt_categorias(negocio)
+        estado.update({"estado": "esperando_servicio", "categoria": categoria})
+        _set_estado_cita(numero_cliente, estado)
+        enviado = _enviar_lista_servicios(numero_cliente, negocio, categoria)
+        if enviado:
+            return None
+        return _txt_servicios(negocio, estado.get("tipo"), categoria)
 
     # ── ESPERANDO SERVICIO ──
     if s == "esperando_servicio":
         if not msg:
             _set_estado_cita(numero_cliente, estado)
-            return _txt_servicios(negocio, estado.get("tipo"))
+            cat_filtro = estado.get("categoria")
+            return _txt_servicios(negocio, estado.get("tipo"), cat_filtro)
 
+        cat_filtro = estado.get("categoria")
         servicios = [(c, sv) for c, sv in negocio.get("servicios", {}).items()
                      if sv.get("activo", True)]
+        if cat_filtro:
+            servicios = [(c, sv) for c, sv in servicios if sv.get("categoria") == cat_filtro]
         elegido = None
         if msg.isdigit():
             idx = int(msg) - 1
@@ -1653,9 +1812,38 @@ def manejar_cita(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
 
         meet_link = _procesar_confirmacion(codigo, numero_cliente, estado, servicio, negocio, twilio_send)
         _del_estado_cita(numero_cliente)
-        if meet_link:
-            return _msg_confirmacion(estado, servicio, negocio)
-        return _msg_confirmacion(estado, servicio, negocio)
+        msg = _msg_confirmacion(estado, servicio, negocio)
+        twilio_send(numero_cliente, msg)
+        # Pin de ubicación nativo + botón Maps para citas presenciales
+        if estado.get("tipo") == "presencial" and estado.get("lugar"):
+            lugar_obj = next(
+                (l for l in (negocio.get("lugares_reunion") or [])
+                 if _lugar_nombre(l) == estado["lugar"]),
+                None
+            )
+            if lugar_obj:
+                if lugar_obj.get("lat") and lugar_obj.get("lng"):
+                    _meta_send_location(
+                        numero_cliente,
+                        lugar_obj["lat"], lugar_obj["lng"],
+                        lugar_obj.get("nombre", estado["lugar"]),
+                        lugar_obj.get("nombre", "")
+                    )
+                if lugar_obj.get("maps"):
+                    _enviar_cta_url(
+                        numero_cliente,
+                        "Toca el botón para abrir la ubicación en tu app de mapas.",
+                        "Ver en Maps",
+                        lugar_obj["maps"]
+                    )
+        # Botón de política de cancelación para todas las citas
+        _enviar_cta_url(
+            numero_cliente,
+            "Consulta nuestra política de cancelación y reagendamiento.",
+            "Ver política",
+            "https://wasapeame.co/descargo"
+        )
+        return None
 
     # ── ESPERANDO COMPROBANTE ──
     if s == "esperando_comprobante" and servicio:

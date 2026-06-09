@@ -49,7 +49,7 @@ def guardar_flow_id(codigo, flow_id):
 
 def generar_flow_json(servicios):
     return {
-        "version": "3.1",
+        "version": "6.1",
         "screens": [
             {
                 "id": "SERVICIO",
@@ -91,6 +91,7 @@ def generar_flow_json(servicios):
             {
                 "id": "TIPO",
                 "title": "Tipo de cita",
+                "terminal": True,
                 "data": {
                     "servicio_clave": {"type": "string", "__example__": "ejemplo"}
                 },

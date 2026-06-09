@@ -2,14 +2,29 @@ import re
 from db import execute, get_conn_ctx
 
 def detectar_codigo(mensaje):
-    """Retorna (codigo, resto_mensaje) si el mensaje empieza con un código válido, o (None, mensaje)."""
-    match = re.match(r'^([A-Z]{2}\d+)\s*(.*)', mensaje.strip(), re.IGNORECASE)
-    if not match:
-        return None, mensaje
-    codigo = match.group(1).upper()
-    row = execute("SELECT codigo FROM negocios WHERE codigo = %s AND activo = TRUE", (codigo,), fetch="one")
-    if row:
-        return codigo, match.group(2).strip()
+    """Retorna (codigo, resto_mensaje) si el mensaje empieza con un código válido o palabra clave, o (None, mensaje)."""
+    msg = mensaje.strip()
+
+    # Formato estándar: ME1, SE1, etc.
+    match = re.match(r'^([A-Z]{2}\d+)\s*(.*)', msg, re.IGNORECASE)
+    if match:
+        codigo = match.group(1).upper()
+        row = execute("SELECT codigo FROM negocios WHERE codigo = %s AND activo = TRUE", (codigo,), fetch="one")
+        if row:
+            return codigo, match.group(2).strip()
+
+    # Palabra clave personalizada (primera palabra, case-insensitive)
+    parts = msg.split(None, 1)
+    if parts:
+        keyword = parts[0].lower()
+        resto   = parts[1] if len(parts) > 1 else ""
+        row = execute(
+            "SELECT codigo FROM negocios WHERE LOWER(palabra_clave) = %s AND activo = TRUE",
+            (keyword,), fetch="one"
+        )
+        if row:
+            return row["codigo"], resto
+
     return None, mensaje
 
 def obtener_negocio(codigo):

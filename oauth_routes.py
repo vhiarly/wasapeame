@@ -1,4 +1,4 @@
-# oauth_routes.py — Wasapeame
+# oauth_routes.py — Wappi
 # Blueprint Flask para el flujo OAuth de Google Calendar
 # Registrar en app.py: app.register_blueprint(oauth_bp)
 

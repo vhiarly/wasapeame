@@ -1,4 +1,4 @@
-# google_calendar.py — Wasapeame
+# google_calendar.py — Wappi
 # Integración Google Calendar + Meet para negocios con modo virtual
 # Requiere: google-auth google-auth-oauthlib google-api-python-client
 from __future__ import annotations
