@@ -63,7 +63,7 @@ def obtener_negocio(codigo):
                 }
 
             cur.execute(
-                "SELECT clave, nombre, duracion_minutos, precio, activo, descripcion "
+                "SELECT clave, nombre, duracion_minutos, precio, activo, descripcion, categoria "
                 "FROM servicios WHERE codigo = %s",
                 (codigo,)
             )
@@ -77,6 +77,7 @@ def obtener_negocio(codigo):
                     "precio":           float(d["precio"]),
                     "activo":           d["activo"],
                     "descripcion":      d.get("descripcion") or "",
+                    "categoria":        d.get("categoria") or "",
                 }
 
             cur.execute(
