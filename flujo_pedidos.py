@@ -22,6 +22,13 @@ try:
 except Exception:
     _PA1_VARIANTES = {}
 
+_PA1_MID_PATH = os.path.join(os.path.dirname(__file__), "pa1_fotos_media_id.json")
+try:
+    with open(_PA1_MID_PATH) as _f:
+        _PA1_MEDIA_IDS = json.load(_f)
+except Exception:
+    _PA1_MEDIA_IDS = {}
+
 _CONFIRMAR = {"confirmar", "confirma", "si", "sí", "dale", "ok", "okay", "listo", "va", "adelante", "procede"}
 _CANCELAR  = {"cancelar", "cancel", "salir", "exit", "bye", "chao", "nada", "olvida", "adios", "adiós",
               "nop", "no quiero", "paso", "0"}
@@ -388,9 +395,9 @@ def _meta_interactive(numero_cliente, interactive_payload):
 
 
 def _enviar_foto(numero_cliente, clave, caption=""):
-    """Envía foto del producto si está disponible en pa1_fotos.json."""
-    url = _PA1_FOTOS.get(clave)
-    if not url:
+    """Envía foto del producto usando media_id pre-subido a Meta."""
+    media_id = _PA1_MEDIA_IDS.get(clave)
+    if not media_id:
         return
     token    = os.getenv("META_ACCESS_TOKEN")
     phone_id = os.getenv("META_PHONE_NUMBER_ID")
@@ -398,7 +405,7 @@ def _enviar_foto(numero_cliente, clave, caption=""):
         return
     phone = numero_cliente.replace("+", "").strip()
     payload = {"messaging_product": "whatsapp", "to": phone, "type": "image",
-               "image": {"link": url}}
+               "image": {"id": media_id}}
     if caption:
         payload["image"]["caption"] = caption[:1024]
     try:
