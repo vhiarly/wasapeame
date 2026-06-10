@@ -15,6 +15,13 @@ try:
 except Exception:
     _PA1_FOTOS = {}
 
+_PA1_VAR_PATH = os.path.join(os.path.dirname(__file__), "pa1_variantes.json")
+try:
+    with open(_PA1_VAR_PATH) as _f:
+        _PA1_VARIANTES = json.load(_f)
+except Exception:
+    _PA1_VARIANTES = {}
+
 _CONFIRMAR = {"confirmar", "confirma", "si", "sí", "dale", "ok", "okay", "listo", "va", "adelante", "procede"}
 _CANCELAR  = {"cancelar", "cancel", "salir", "exit", "bye", "chao", "nada", "olvida", "adios", "adiós",
               "nop", "no quiero", "paso", "0"}
@@ -642,7 +649,10 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
         if msg == "1" and items:
             estado["estado"] = "esperando_confirmacion"
             _set_estado(numero_cliente, estado)
-            return _resumen(items, "\n1. Confirmar pedido\n0. Cancelar")
+            _enviar_botones(numero_cliente,
+                _resumen(items),
+                [("si", "✅ Confirmar"), ("cancelar", "❌ Cancelar")])
+            return None
 
         if any(re.search(r"\b" + p + r"\b", msg) for p in _CONFIRMAR):
             if not items:
@@ -808,16 +818,22 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
                 return None
             estado["estado"] = "esperando_confirmacion"
             _set_estado(numero_cliente, estado)
-            return _resumen(items, "\n1. Confirmar pedido\n0. Cancelar")
+            _enviar_botones(numero_cliente,
+                _resumen(items),
+                [("si", "✅ Confirmar"), ("cancelar", "❌ Cancelar")])
+            return None
 
-        # Confirmar
+        # Confirmar (texto)
         if any(re.search(r"\b" + p + r"\b", msg) for p in _CONFIRMAR):
             if not items:
                 _enviar_categorias(numero_cliente, negocio)
                 return None
             estado["estado"] = "esperando_confirmacion"
             _set_estado(numero_cliente, estado)
-            return _resumen(items, "\n1. Confirmar pedido\n0. Cancelar")
+            _enviar_botones(numero_cliente,
+                _resumen(items),
+                [("si", "✅ Confirmar"), ("cancelar", "❌ Cancelar")])
+            return None
 
         # Selección de categoría (cat_*)
         if msg.startswith("cat_"):
@@ -844,6 +860,24 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
         catalogo = negocio.get("catalogo", {})
         if msg in catalogo and catalogo[msg].get("activo", True):
             prod_sel = catalogo[msg]
+            variantes = _PA1_VARIANTES.get(msg)
+
+            if variantes and prod_sel["precio"] == 0:
+                # Producto con variantes — preguntar tamaño
+                _enviar_foto(numero_cliente, msg)
+                filas = [
+                    (f"var_{msg}_{i}", v["nombre"], f"RD${v['precio']}")
+                    for i, v in enumerate(variantes)
+                ]
+                estado["item_pendiente_rebanado"] = {"clave": msg, "nombre": prod_sel["nombre"],
+                                                      "unidad": prod_sel["unidad"], "variantes": variantes}
+                estado["estado"] = "esperando_variante"
+                _set_estado(numero_cliente, estado)
+                _enviar_lista_pedidos(numero_cliente,
+                    f"*{prod_sel['nombre']}*\n\nElige el tamaño:",
+                    filas, boton_texto="Ver tamaños", seccion_titulo="Tamaños")
+                return None
+
             item = {
                 "clave": msg, "nombre": prod_sel["nombre"],
                 "cantidad": 1, "texto": "1",
@@ -860,6 +894,52 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
 
         # Cualquier otra cosa → re-mostrar categorías
         _enviar_categorias(numero_cliente, negocio)
+        return None
+
+    # ── ESPERANDO VARIANTE (tamaño de pastel/postre) ──
+    if s == "esperando_variante":
+        info = estado.get("item_pendiente_rebanado") or {}
+        variantes = info.get("variantes", [])
+        clave = info.get("clave", "")
+
+        # Selección por ID de lista (var_clave_index)
+        variante = None
+        if msg.startswith(f"var_{clave}_"):
+            try:
+                idx = int(msg.rsplit("_", 1)[-1])
+                variante = variantes[idx]
+            except (ValueError, IndexError):
+                pass
+
+        # Fallback: selección por número de texto
+        if variante is None and msg.strip().isdigit():
+            idx = int(msg.strip()) - 1
+            if 0 <= idx < len(variantes):
+                variante = variantes[idx]
+
+        if variante is None:
+            # Re-mostrar opciones
+            filas = [(f"var_{clave}_{i}", v["nombre"], f"RD${v['precio']}") for i, v in enumerate(variantes)]
+            _enviar_lista_pedidos(numero_cliente,
+                f"*{info.get('nombre')}*\n\nElige el tamaño:",
+                filas, boton_texto="Ver tamaños", seccion_titulo="Tamaños")
+            return None
+
+        item = {
+            "clave": clave,
+            "nombre": f"{info['nombre']} ({variante['nombre']})",
+            "cantidad": 1, "texto": "1",
+            "unidad": info.get("unidad", "unidad"),
+            "precio": float(variante["precio"]),
+        }
+        items.append(item)
+        estado["items"] = items
+        estado["estado"] = "esperando_categoria"
+        estado["item_pendiente_rebanado"] = None
+        _set_estado(numero_cliente, estado)
+        _enviar_botones(numero_cliente,
+            f"✅ *{item['nombre']}* agregado.\n\n" + _resumen(items),
+            [("seguir_comprando", "🛍️ Ver más"), ("confirmar_pedido", "✅ Confirmar")])
         return None
 
     # ── ESPERANDO CANTIDAD LIBRA ──

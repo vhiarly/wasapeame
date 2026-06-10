@@ -1,0 +1,740 @@
+{
+  "temp_manjar_mango_naranjas": [
+    {
+      "nombre": "1/4 Lb",
+      "precio": 1750
+    },
+    {
+      "nombre": "1/2 Lb",
+      "precio": 2500
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 3500
+    }
+  ],
+  "temp_manjar_molocoton_ponche": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1750
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 2500
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 3500
+    }
+  ],
+  "temp_flores_comestibles_tope": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 3000
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 4500
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 5800
+    }
+  ],
+  "temp_flores_comestibles_caja": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 3800
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 5800
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 6800
+    }
+  ],
+  "pastel_pina_colada": [
+    {
+      "nombre": "1/4 Lb",
+      "precio": 1400
+    },
+    {
+      "nombre": "1/2 Lb",
+      "precio": 1750
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 2850
+    }
+  ],
+  "pastel_dulce_de_leche": [
+    {
+      "nombre": "Mediano 6-8 Personas",
+      "precio": 1850
+    },
+    {
+      "nombre": "Grande 10-12 Personas",
+      "precio": 2650
+    }
+  ],
+  "pastel_chocolate_dulce_leche": [
+    {
+      "nombre": "Mediano 6-8 Personas",
+      "precio": 1850
+    },
+    {
+      "nombre": "Grande 10-12 Personas",
+      "precio": 2650
+    }
+  ],
+  "pastel_manjar_pina": [
+    {
+      "nombre": "1/4 Lb",
+      "precio": 1500
+    },
+    {
+      "nombre": "1/2 Lb",
+      "precio": 2350
+    },
+    {
+      "nombre": "1 Lb",
+      "precio": 3150
+    },
+    {
+      "nombre": "1.5 Lb",
+      "precio": 4725
+    },
+    {
+      "nombre": "2 Lb",
+      "precio": 6300
+    }
+  ],
+  "pastel_turron_pistacho": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1500
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 2350
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 3150
+    },
+    {
+      "nombre": "1.5 LB",
+      "precio": 4725
+    },
+    {
+      "nombre": "2 LB",
+      "precio": 6300
+    }
+  ],
+  "pastel_manjar_coco": [
+    {
+      "nombre": "1/4 Lb",
+      "precio": 1500
+    },
+    {
+      "nombre": "1/2 Lb",
+      "precio": 2350
+    },
+    {
+      "nombre": "1 Lb",
+      "precio": 3150
+    },
+    {
+      "nombre": "1.5 Lb",
+      "precio": 4725
+    },
+    {
+      "nombre": "2 Lb",
+      "precio": 6300
+    }
+  ],
+  "pastel_turron_almendras": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1500
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 2350
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 3150
+    },
+    {
+      "nombre": "1.5 LB",
+      "precio": 4725
+    },
+    {
+      "nombre": "2 LB",
+      "precio": 6300
+    }
+  ],
+  "pastel_black_white_turron": [
+    {
+      "nombre": "1/4 Lb",
+      "precio": 1500
+    },
+    {
+      "nombre": "1/2 Lb",
+      "precio": 2350
+    },
+    {
+      "nombre": "1 Lb",
+      "precio": 3150
+    },
+    {
+      "nombre": "1.5 Lb",
+      "precio": 4725
+    },
+    {
+      "nombre": "2 Lb",
+      "precio": 6300
+    }
+  ],
+  "pastel_ciruela_dulce_leche": [
+    {
+      "nombre": "Mediano 6-8 Personas",
+      "precio": 1850
+    },
+    {
+      "nombre": "Grande 10-12 Personas",
+      "precio": 2650
+    }
+  ],
+  "pastel_guayaba_dulce_leche": [
+    {
+      "nombre": "Mediano 6-8 Personas",
+      "precio": 1850
+    },
+    {
+      "nombre": "Grande 10-12 Personas",
+      "precio": 2650
+    }
+  ],
+  "pastel_pina_dulce_leche": [
+    {
+      "nombre": "Mediano 6-8 Personas",
+      "precio": 1850
+    },
+    {
+      "nombre": "Grande 10-12 Personas",
+      "precio": 2650
+    }
+  ],
+  "pastel_manjar_nutella_pistacho": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1850
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 2450
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 3850
+    }
+  ],
+  "pastel_chocococo_madness": [
+    {
+      "nombre": "1/4 Lb",
+      "precio": 1500
+    },
+    {
+      "nombre": "1/2 lb",
+      "precio": 2350
+    },
+    {
+      "nombre": "1 Lb",
+      "precio": 3150
+    },
+    {
+      "nombre": "1.5 lb",
+      "precio": 4725
+    },
+    {
+      "nombre": "2 lb",
+      "precio": 6300
+    }
+  ],
+  "pastel_torta_alejandro": [
+    {
+      "nombre": "1/2 LB",
+      "precio": 2500
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 3500
+    }
+  ],
+  "pastel_manjar_blueberry": [
+    {
+      "nombre": "1/4 Lb",
+      "precio": 1500
+    },
+    {
+      "nombre": "1/2 Lb",
+      "precio": 2350
+    },
+    {
+      "nombre": "1 Lb",
+      "precio": 3150
+    },
+    {
+      "nombre": "1.5 Lb",
+      "precio": 4725
+    },
+    {
+      "nombre": "2 Lb",
+      "precio": 6300
+    }
+  ],
+  "pastel_nutella_turron": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1750
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 2650
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 3850
+    }
+  ],
+  "pastel_bw_turron_pistacho": [
+    {
+      "nombre": "1/4 Lb",
+      "precio": 1500
+    },
+    {
+      "nombre": "1/2 Lb",
+      "precio": 2350
+    },
+    {
+      "nombre": "1 Lb",
+      "precio": 3150
+    },
+    {
+      "nombre": "1.5 Lb",
+      "precio": 4725
+    },
+    {
+      "nombre": "2 Lb",
+      "precio": 6300
+    }
+  ],
+  "postre_cheesecake_pistacho": [
+    {
+      "nombre": "Mediano 6-8 Personas",
+      "precio": 2500
+    },
+    {
+      "nombre": "Grande 10-12 Personas",
+      "precio": 3500
+    }
+  ],
+  "postre_cheesecake_pistacho2": [
+    {
+      "nombre": "Mediano (4-6 Personas)",
+      "precio": 1850
+    },
+    {
+      "nombre": "Grande (8-12 Personas)",
+      "precio": 2650
+    }
+  ],
+  "postre_cheesecake_dulce_leche": [
+    {
+      "nombre": "Mediano 6-8 Personas",
+      "precio": 1850
+    },
+    {
+      "nombre": "Grande 10-12 Personas",
+      "precio": 2650
+    }
+  ],
+  "postre_cheesecake_fresa": [
+    {
+      "nombre": "Mediano 6-8 Personas",
+      "precio": 1950
+    },
+    {
+      "nombre": "Grande 10-12 Personas",
+      "precio": 3500
+    }
+  ],
+  "postre_cheesecake_oreo": [
+    {
+      "nombre": "Mediano 6-8 Personas",
+      "precio": 1950
+    },
+    {
+      "nombre": "Grande 10-12 Personas",
+      "precio": 3500
+    }
+  ],
+  "postre_cheesecake_brownie": [
+    {
+      "nombre": "Mediano 6-8 Personas",
+      "precio": 1950
+    },
+    {
+      "nombre": "Grande 10-12 Personas",
+      "precio": 3500
+    }
+  ],
+  "postre_cheesecake_zanahorias": [
+    {
+      "nombre": "Mediano 6-8 personas",
+      "precio": 2050
+    },
+    {
+      "nombre": "Grande 10-12 Personas",
+      "precio": 2850
+    }
+  ],
+  "postre_cheesecake_mango": [
+    {
+      "nombre": "Mediano 6-8 Personas",
+      "precio": 1950
+    },
+    {
+      "nombre": "Grande 10-12 Personas",
+      "precio": 3500
+    }
+  ],
+  "esp_manjar_naranjas": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1350
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 1650
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 2650
+    },
+    {
+      "nombre": "1.5 LB",
+      "precio": 3975
+    },
+    {
+      "nombre": "2 LB",
+      "precio": 5300
+    }
+  ],
+  "esp_pasion_cake": [
+    {
+      "nombre": "6-8 Personas",
+      "precio": 1850
+    },
+    {
+      "nombre": "10-12 Personas",
+      "precio": 2500
+    },
+    {
+      "nombre": "18-20 Personas",
+      "precio": 3500
+    }
+  ],
+  "esp_coconut_carrot": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1750
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 2500
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 3500
+    }
+  ],
+  "esp_tiramisu_nutella": [
+    {
+      "nombre": "10-12 Personas",
+      "precio": 2150
+    },
+    {
+      "nombre": "18-20 Personas",
+      "precio": 3150
+    }
+  ],
+  "esp_tornado_chocolate": [
+    {
+      "nombre": "1/2 LB",
+      "precio": 1950
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 2950
+    }
+  ],
+  "esp_tornado_chinola": [
+    {
+      "nombre": "1/2 LB",
+      "precio": 1950
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 2950
+    }
+  ],
+  "esp_red_velvet": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1950
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 2500
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 3500
+    }
+  ],
+  "esp_delicia_tropical": [
+    {
+      "nombre": "6-8 Personas",
+      "precio": 2150
+    },
+    {
+      "nombre": "10-12 Personas",
+      "precio": 2850
+    },
+    {
+      "nombre": "18-20 Personas",
+      "precio": 3850
+    }
+  ],
+  "esp_tarta_valeria": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1650
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 1950
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 2950
+    }
+  ],
+  "esp_flores_comestibles": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 3500
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 5000
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 6300
+    }
+  ],
+  "pastel_crema_pastelera": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1300
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 1600
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 2500
+    },
+    {
+      "nombre": "1.5 LB",
+      "precio": 3750
+    },
+    {
+      "nombre": "2 LB",
+      "precio": 5000
+    }
+  ],
+  "pastel_crema_especial": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1300
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 1600
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 2500
+    },
+    {
+      "nombre": "1.5 LB",
+      "precio": 3750
+    },
+    {
+      "nombre": "2 LB",
+      "precio": 5000
+    }
+  ],
+  "pastel_nutella": [
+    {
+      "nombre": "Mediano (6-8 PERSONAS)",
+      "precio": 2500
+    },
+    {
+      "nombre": "Grande (10-12 PERSONAS)",
+      "precio": 3500
+    }
+  ],
+  "pastel_ciruela": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1650
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 2150
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 3150
+    },
+    {
+      "nombre": "1.5 LB",
+      "precio": 4725
+    },
+    {
+      "nombre": "2 LB",
+      "precio": 6300
+    }
+  ],
+  "pastel_milkyway": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1400
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 1850
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 2950
+    },
+    {
+      "nombre": "1.5 LB",
+      "precio": 4425
+    },
+    {
+      "nombre": "2 LB",
+      "precio": 5900
+    }
+  ],
+  "pastel_snickers_madness": [
+    {
+      "nombre": "1/4 Lb",
+      "precio": 1850
+    },
+    {
+      "nombre": "1/2 Lb",
+      "precio": 2500
+    },
+    {
+      "nombre": "1 Lb",
+      "precio": 3500
+    }
+  ],
+  "pastel_black_and_white": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1300
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 1600
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 2500
+    },
+    {
+      "nombre": "1.5 LB",
+      "precio": 3750
+    },
+    {
+      "nombre": "2 LB",
+      "precio": 5000
+    }
+  ],
+  "pastel_mermelada_guayaba": [
+    {
+      "nombre": "1/4 LB",
+      "precio": 1300
+    },
+    {
+      "nombre": "1/2 LB",
+      "precio": 1600
+    },
+    {
+      "nombre": "1 LB",
+      "precio": 2500
+    },
+    {
+      "nombre": "1.5 LB",
+      "precio": 3750
+    },
+    {
+      "nombre": "2 LB",
+      "precio": 5000
+    }
+  ],
+  "pastel_crema_almendras": [
+    {
+      "nombre": "1/4 Lb",
+      "precio": 1350
+    },
+    {
+      "nombre": "1/2 Lb",
+      "precio": 1650
+    },
+    {
+      "nombre": "1 Lb",
+      "precio": 2650
+    },
+    {
+      "nombre": "1.5 Lb",
+      "precio": 3975
+    },
+    {
+      "nombre": "2 Lb",
+      "precio": 5300
+    }
+  ],
+  "postre_volteado_pina": [
+    {
+      "nombre": "Mediano 8-12 Personas",
+      "precio": 1950
+    },
+    {
+      "nombre": "Grande 15-20 Personas",
+      "precio": 2950
+    }
+  ]
+}
