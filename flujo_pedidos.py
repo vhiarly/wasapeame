@@ -1094,6 +1094,12 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
     # ── ESPERANDO CONFIRMACION ──
     if s == "esperando_confirmacion":
         if any(re.search(r"\b" + p + r"\b", msg) for p in _CONFIRMAR) or msg == "1":
+            if negocio.get("solo_retiro"):
+                estado["estado"] = "esperando_fecha_retiro"
+                estado["direccion"] = "Retiro en tienda"
+                _set_estado(numero_cliente, estado)
+                return ("¿Para qué fecha y hora pasas a buscar tu pedido?\n\n"
+                        "Ejemplo: mañana a las 3pm, viernes 10am, hoy en la tarde")
             estado["estado"] = "esperando_direccion"
             _set_estado(numero_cliente, estado)
             return ("A que direccion te enviamos?\n\n"
@@ -1102,6 +1108,32 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
             _del_estado(numero_cliente)
             return "Orden cancelada. Escribe el codigo del negocio cuando quieras pedir de nuevo."
         return _resumen(items, "\n1. Confirmar pedido\n2. Cancelar")
+
+    # ── ESPERANDO FECHA RETIRO ──
+    if s == "esperando_fecha_retiro":
+        estado["referencia"] = mensaje  # guardamos la fecha como referencia
+        total = sum(i["precio"] for i in items)
+        puesto = _siguiente_turno(codigo)
+        insertado = _guardar_pedido(
+            numero_cliente, codigo, items, total, puesto,
+            estado["direccion"], estado["referencia"]
+        )
+        if not insertado:
+            return "Hubo un error guardando tu pedido. Intenta de nuevo."
+        twilio_send(negocio["numero_negocio"],
+            f"🛍️ NUEVO PEDIDO (RETIRO) — #{puesto}\n"
+            + "\n".join(_fmt(i) for i in items)
+            + f"\n\nTotal: RD${total:.0f}"
+            + f"\nRetiro: {estado['referencia']}"
+            + f"\nCliente: {numero_cliente}"
+        )
+        estado["estado"] = "pedido_enviado"
+        _set_estado(numero_cliente, estado)
+        return (f"✅ *¡Pedido #{puesto} confirmado!*\n\n"
+                + "\n".join(_fmt(i) for i in items)
+                + f"\n\nTotal: RD${total:.0f}"
+                + f"\nRetiro: {estado['referencia']}"
+                + "\n\nTe avisaremos cuando esté listo. 🎂")
 
     # ── ESPERANDO DIRECCIÓN ──
     if s == "esperando_direccion":

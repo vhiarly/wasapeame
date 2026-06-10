@@ -357,6 +357,10 @@ def migrate():
         ALTER TABLE conversaciones_citas
           ADD COLUMN IF NOT EXISTS categoria VARCHAR(100)
     """)
+    cur.execute("""
+        ALTER TABLE negocios
+          ADD COLUMN IF NOT EXISTS solo_retiro BOOLEAN NOT NULL DEFAULT FALSE
+    """)
 
     conn.commit()
     cur.close()
