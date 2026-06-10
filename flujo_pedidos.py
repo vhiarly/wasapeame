@@ -501,23 +501,42 @@ def _enviar_categorias(numero_cliente, negocio):
     )
 
 
-def _enviar_productos_cat(numero_cliente, negocio, categoria):
+def _enviar_productos_cat(numero_cliente, negocio, categoria, pagina=0):
+    PAGE = 9  # 9 productos + 1 fila "Ver más" si hay más
     catalogo  = negocio.get("catalogo", {})
     productos = [(cl, p) for cl, p in catalogo.items()
                  if p.get("activo", True) and p.get("categoria") == categoria]
     if not productos:
         return False
     emoji = _emoji_categoria(categoria)
+    total = len(productos)
+    inicio = pagina * PAGE
+    pagina_prods = productos[inicio:inicio + PAGE]
+    hay_mas = (inicio + PAGE) < total
+
     filas = []
-    for clave, prod in productos:
-        precio_str = f"RD${prod['precio']:.0f}" if prod["precio"] > 0 else "Precio al consultar"
+    for clave, prod in pagina_prods:
+        variantes = _PA1_VARIANTES.get(clave)
+        if variantes and prod["precio"] == 0:
+            precios = " / ".join(f"{v['nombre']} RD${v['precio']}" for v in variantes[:2])
+            precio_str = precios
+        elif prod["precio"] > 0:
+            precio_str = f"RD${prod['precio']:.0f}"
+        else:
+            precio_str = "Precio al consultar"
         filas.append((clave, prod["nombre"], precio_str))
+
+    if hay_mas:
+        sig = pagina + 1
+        filas.append((f"catpage_{_nombre_a_cat_id(categoria)}_{sig}",
+                       "Ver más →", f"productos {inicio+PAGE+1}-{min(inicio+2*PAGE, total)}"))
+
     return _enviar_lista_pedidos(
         numero_cliente,
         f"*{emoji} {categoria}*\n\nToca el producto para agregarlo:",
         filas,
         boton_texto="Ver productos",
-        seccion_titulo=categoria,
+        seccion_titulo=f"{categoria}" if total <= PAGE else f"{categoria} ({inicio+1}-{min(inicio+PAGE, total)} de {total})",
     )
 
 
@@ -842,6 +861,19 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
                 [("si", "✅ Confirmar"), ("cancelar", "❌ Cancelar")])
             return None
 
+        # Paginación "Ver más →" (catpage_cat_id_pagina)
+        if msg.startswith("catpage_"):
+            parts = msg.rsplit("_", 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                cat_id, pag = parts[0][len("catpage_"):], int(parts[1])
+                cat_name = next(
+                    (c for c in _categorias_activas(negocio) if _nombre_a_cat_id(c) == cat_id),
+                    None
+                )
+                if cat_name:
+                    _enviar_productos_cat(numero_cliente, negocio, cat_name, pagina=pag)
+                    return None
+
         # Selección de categoría (cat_*)
         if msg.startswith("cat_"):
             cat_name = next(
@@ -849,18 +881,7 @@ def manejar_pedido(numero_cliente, codigo, mensaje, twilio_send, media_id=None):
                 None
             )
             if cat_name:
-                ok = _enviar_productos_cat(numero_cliente, negocio, cat_name)
-                if not ok:
-                    # Fallback texto si la lista interactiva falla
-                    catalogo = negocio.get("catalogo", {})
-                    prods = [(cl, p) for cl, p in catalogo.items()
-                             if p.get("activo", True) and p.get("categoria") == cat_name]
-                    lineas = [f"*{cat_name}*\n"]
-                    for i, (cl, p) in enumerate(prods, 1):
-                        precio = f"RD${p['precio']:.0f}" if p['precio'] > 0 else "precio al consultar"
-                        lineas.append(f"{i}. {p['nombre']} — {precio}")
-                    lineas.append("\nEscribe el nombre del producto:")
-                    return "\n".join(lineas)
+                _enviar_productos_cat(numero_cliente, negocio, cat_name)
                 return None
 
         # Selección de producto por clave (reply de lista interactiva)
