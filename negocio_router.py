@@ -18,12 +18,16 @@ def detectar_codigo(mensaje):
     if parts:
         keyword = parts[0].lower()
         resto   = parts[1] if len(parts) > 1 else ""
-        row = execute(
-            "SELECT codigo FROM negocios WHERE LOWER(palabra_clave) = %s AND activo = TRUE",
-            (keyword,), fetch="one"
-        )
-        if row:
-            return row["codigo"], resto
+        try:
+            row = execute(
+                "SELECT codigo FROM negocios WHERE LOWER(palabra_clave) = %s AND activo = TRUE",
+                (keyword,), fetch="one"
+            )
+            if row:
+                return row["codigo"], resto
+        except:
+            # Si falla (columna no existe o error de BD), continúa
+            pass
 
     return None, mensaje
 
