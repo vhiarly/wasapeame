@@ -25,7 +25,10 @@ CREATE TABLE IF NOT EXISTS negocios (
     pin                   VARCHAR(50)  NOT NULL,
     activo                BOOLEAN      NOT NULL DEFAULT TRUE,
     requiere_comprobante  BOOLEAN      NOT NULL DEFAULT FALSE,
-    instrucciones_pago    TEXT         NOT NULL DEFAULT ''
+    instrucciones_pago    TEXT         NOT NULL DEFAULT '',
+    google_access_token   TEXT,
+    google_refresh_token  TEXT,
+    google_expiry        TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS catalogo (
