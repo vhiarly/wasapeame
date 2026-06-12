@@ -54,17 +54,6 @@ def ping():
     return "¡El servidor está vivo!", 200
 
 
-@app.route("/admin/fix-activos")
-def fix_activos():
-    """Endpoint temporal para activar todos los negocios"""
-    try:
-        execute("UPDATE negocios SET activo = true")
-        result = execute("SELECT COUNT(*) as count FROM negocios WHERE activo = true", fetch='one')
-        return jsonify({"ok": True, "activos": result['count']}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
 @app.after_request
 def log_response(response):
     numero = getattr(g, "numero_cliente", "?")
