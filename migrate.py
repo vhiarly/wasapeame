@@ -181,6 +181,37 @@ CREATE TABLE IF NOT EXISTS dashboard_stats (
     actualizado  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS sesiones_relay (
+    numero_cliente  VARCHAR(50) PRIMARY KEY,
+    numero_negocio  VARCHAR(50) NOT NULL,
+    codigo          VARCHAR(10) NOT NULL,
+    estado          VARCHAR(20) DEFAULT 'activo',
+    abierto_en      TIMESTAMPTZ DEFAULT NOW(),
+    creado_en       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS agentes_log (
+    id              SERIAL PRIMARY KEY,
+    agente          VARCHAR(50) NOT NULL,
+    tipo            VARCHAR(100) NOT NULL,
+    descripcion     TEXT,
+    detalle         JSONB,
+    resuelto        BOOLEAN DEFAULT FALSE,
+    creado_en       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS clientes_vistos (
+    numero TEXT PRIMARY KEY,
+    creado_en TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS clientes (
+    numero TEXT PRIMARY KEY,
+    nombre TEXT,
+    email TEXT,
+    creado_en TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS imprevistos (
     id          SERIAL      PRIMARY KEY,
     codigo      VARCHAR(10),
