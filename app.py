@@ -116,11 +116,16 @@ def meta_send(to, body, media_id=None, media_type="image"):
             "type": "text",
             "text": {"body": body, "preview_url": False}
         }
+
+    print(f"[META] Enviando a {to}: token={META_ACCESS_TOKEN[:20]}... phone_id={META_PHONE_NUMBER_ID}")
+
     try:
         resp = http_requests.post(url, json=payload, headers=headers, timeout=10)
+        print(f"[META] Response status: {resp.status_code}")
         resp.raise_for_status()
+        print(f"[META] ✓ Mensaje enviado a {to}")
     except Exception as e:
-        print(f"[META] Error enviando a {to}: {e}")
+        print(f"[META] ✗ Error enviando a {to}: {type(e).__name__}: {e}")
 
 
 
