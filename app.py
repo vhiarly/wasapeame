@@ -54,6 +54,16 @@ def ping():
     return "¡El servidor está vivo!", 200
 
 
+@app.route("/activate-se1")
+def activate_se1():
+    """Endpoint para activar SE1 (debug only)"""
+    try:
+        execute("UPDATE negocios SET activo = true WHERE codigo = 'SE1'")
+        return jsonify({"ok": True, "mensaje": "SE1 activado"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.after_request
 def log_response(response):
     numero = getattr(g, "numero_cliente", "?")
