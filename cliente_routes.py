@@ -29,16 +29,19 @@ def login():
         codigo = request.form.get('codigo', '').upper()
         pin = request.form.get('pin', '')
 
-        negocio = execute(
-            "SELECT codigo, nombre, pin FROM negocios WHERE codigo = %s",
-            (codigo,),
-            fetch='one'
-        )
+        try:
+            negocio = execute(
+                "SELECT codigo, nombre, pin FROM negocios WHERE codigo = %s",
+                (codigo,),
+                fetch='one'
+            )
 
-        if negocio and negocio[2] == pin:
-            session['cliente_codigo'] = codigo
-            return redirect('/cliente/dashboard')
-        else:
+            if negocio and negocio[2] == pin:
+                session['cliente_codigo'] = codigo
+                return redirect('/cliente/dashboard')
+            else:
+                return render_template('cliente/login.html', error='Código o PIN inválido')
+        except:
             return render_template('cliente/login.html', error='Código o PIN inválido')
 
     return render_template('cliente/login.html')
