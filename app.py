@@ -430,8 +430,11 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     except Exception as e:
-        print(f"[ERROR] webhook: {e}")
-        return jsonify({"status": "error", "message": "Fallo en procesamiento"}), 200
+        import traceback
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        print(f"[ERROR] webhook: {error_msg}")
+        print(traceback.format_exc())
+        return jsonify({"status": "error", "message": error_msg}), 200
 
 
 # ── Rutas web ──────────────────────────────────────────────────────────────────
