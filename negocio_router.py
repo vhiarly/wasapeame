@@ -25,9 +25,8 @@ def detectar_codigo(mensaje):
             )
             if row:
                 return row["codigo"], resto
-        except:
-            # Si falla (columna no existe o error de BD), continúa
-            pass
+        except Exception as e:
+            print(f"[DETECTAR_CODIGO] ⚠ Error buscando palabra_clave '{keyword}': {e}")
 
     return None, mensaje
 

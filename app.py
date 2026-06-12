@@ -32,15 +32,18 @@ init_pool()
 
 try:
     execute("DELETE FROM conversaciones_pedidos WHERE timeout_en < NOW()")
-except:
-    pass
+    print("[STARTUP] ✓ Limpieza de conversaciones expiradas")
+except Exception as e:
+    print(f"[STARTUP] ⚠ Error limpiando conversaciones: {e}")
+
 try:
     execute("CREATE TABLE IF NOT EXISTS clientes_vistos (numero TEXT PRIMARY KEY)")
     execute("CREATE TABLE IF NOT EXISTS clientes (numero TEXT PRIMARY KEY, nombre TEXT, email TEXT)")
     execute("ALTER TABLE conversaciones_registro ADD COLUMN IF NOT EXISTS datos JSONB NOT NULL DEFAULT '{}'")
     execute("ALTER TABLE negocios ADD COLUMN IF NOT EXISTS palabra_clave VARCHAR(100)")
-except:
-    pass
+    print("[STARTUP] ✓ Tablas y columnas verificadas/creadas")
+except Exception as e:
+    print(f"[STARTUP] ⚠ Error en BD: {e}")
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key-change-in-prod")
@@ -55,12 +58,13 @@ def ping():
     return "¡El servidor está vivo!", 200
 
 
-@app.route("/activate-se1")
-def activate_se1():
-    """Endpoint para activar SE1 (debug only)"""
+@app.route("/activate-all-negocios")
+def activate_all_negocios():
+    """Endpoint para activar todos los negocios (debug only)"""
     try:
-        execute("UPDATE negocios SET activo = true WHERE codigo = 'SE1'")
-        return jsonify({"ok": True, "mensaje": "SE1 activado"}), 200
+        execute("UPDATE negocios SET activo = true")
+        result = execute("SELECT COUNT(*) as total FROM negocios WHERE activo = true", fetch='one')
+        return jsonify({"ok": True, "mensaje": f"{result['total']} negocios activados"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -83,16 +87,17 @@ def log_response(response):
     return response
 
 
-META_ACCESS_TOKEN    = os.getenv("META_ACCESS_TOKEN")
-META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
 META_VERIFY_TOKEN    = os.getenv("META_VERIFY_TOKEN", "wasapeame_verify_2026")
 
 
 def meta_send(to, body, media_id=None, media_type="image"):
+    token = os.getenv("META_ACCESS_TOKEN")
+    phone_id = os.getenv("META_PHONE_NUMBER_ID")
+
     phone = to.replace("whatsapp:+", "").replace("+", "").strip()
-    url = f"https://graph.facebook.com/v19.0/{META_PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
     headers = {
-        "Authorization": f"Bearer {META_ACCESS_TOKEN}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
     if media_id and media_type == "audio":
@@ -117,15 +122,12 @@ def meta_send(to, body, media_id=None, media_type="image"):
             "text": {"body": body, "preview_url": False}
         }
 
-    print(f"[META] Enviando a {to}: token={META_ACCESS_TOKEN[:20]}... phone_id={META_PHONE_NUMBER_ID}")
+    print(f"[META] Enviando a {to}: token_ok={bool(token)} phone_id={phone_id}")
 
-    try:
-        resp = http_requests.post(url, json=payload, headers=headers, timeout=10)
-        print(f"[META] Response status: {resp.status_code}")
-        resp.raise_for_status()
-        print(f"[META] ✓ Mensaje enviado a {to}")
-    except Exception as e:
-        print(f"[META] ✗ Error enviando a {to}: {type(e).__name__}: {e}")
+    resp = http_requests.post(url, json=payload, headers=headers, timeout=10)
+    print(f"[META] Response status: {resp.status_code}")
+    resp.raise_for_status()
+    print(f"[META] ✓ Mensaje enviado a {to}")
 
 
 
