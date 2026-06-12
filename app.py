@@ -66,23 +66,10 @@ def activate_se1():
 
 @app.route("/add-palabra-clave-column")
 def add_palabra_clave_column():
-    """Endpoint para agregar columnas faltantes (debug only)"""
+    """Endpoint para agregar columna palabra_clave (debug only)"""
     try:
-        cols = [
-            "ALTER TABLE negocios ADD COLUMN IF NOT EXISTS palabra_clave VARCHAR(100)",
-            "ALTER TABLE negocios ADD COLUMN IF NOT EXISTS descripcion TEXT",
-            "ALTER TABLE negocios ADD COLUMN IF NOT EXISTS lugares_reunion JSONB",
-            "ALTER TABLE negocios ADD COLUMN IF NOT EXISTS costo_online NUMERIC(10,2)",
-            "ALTER TABLE negocios ADD COLUMN IF NOT EXISTS costo_presencial NUMERIC(10,2)",
-            "ALTER TABLE negocios ADD COLUMN IF NOT EXISTS test_mode BOOLEAN DEFAULT FALSE",
-            "ALTER TABLE negocios ADD COLUMN IF NOT EXISTS google_access_token TEXT",
-            "ALTER TABLE negocios ADD COLUMN IF NOT EXISTS google_refresh_token TEXT",
-            "ALTER TABLE negocios ADD COLUMN IF NOT EXISTS google_expiry TIMESTAMPTZ",
-            "ALTER TABLE negocios ADD COLUMN IF NOT EXISTS flow_id VARCHAR(50)",
-        ]
-        for col in cols:
-            execute(col)
-        return jsonify({"ok": True, "mensaje": "Columnas agregadas"}), 200
+        execute("ALTER TABLE negocios ADD COLUMN IF NOT EXISTS palabra_clave VARCHAR(100)")
+        return jsonify({"ok": True, "mensaje": "Columna palabra_clave agregada"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
