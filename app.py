@@ -34,9 +34,12 @@ try:
     execute("DELETE FROM conversaciones_pedidos WHERE timeout_en < NOW()")
 except:
     pass
-execute("CREATE TABLE IF NOT EXISTS clientes_vistos (numero TEXT PRIMARY KEY)")
-execute("CREATE TABLE IF NOT EXISTS clientes (numero TEXT PRIMARY KEY, nombre TEXT, email TEXT)")
-execute("ALTER TABLE conversaciones_registro ADD COLUMN IF NOT EXISTS datos JSONB NOT NULL DEFAULT '{}'")
+try:
+    execute("CREATE TABLE IF NOT EXISTS clientes_vistos (numero TEXT PRIMARY KEY)")
+    execute("CREATE TABLE IF NOT EXISTS clientes (numero TEXT PRIMARY KEY, nombre TEXT, email TEXT)")
+    execute("ALTER TABLE conversaciones_registro ADD COLUMN IF NOT EXISTS datos JSONB NOT NULL DEFAULT '{}'")
+except:
+    pass
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key-change-in-prod")
