@@ -36,7 +36,7 @@ def login():
                 fetch='one'
             )
 
-            if negocio and negocio[2] == pin:
+            if negocio and negocio['pin'] == pin:
                 session['cliente_codigo'] = codigo
                 return redirect('/cliente/dashboard')
             else:
