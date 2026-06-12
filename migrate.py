@@ -422,6 +422,11 @@ def migrate():
           ADD COLUMN IF NOT EXISTS solo_retiro BOOLEAN NOT NULL DEFAULT FALSE
     """)
 
+    cur.execute("""
+        ALTER TABLE negocios
+          ADD COLUMN IF NOT EXISTS palabra_clave VARCHAR(100)
+    """)
+
     conn.commit()
     cur.close()
     conn.close()

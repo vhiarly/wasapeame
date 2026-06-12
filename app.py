@@ -64,6 +64,16 @@ def activate_se1():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/add-palabra-clave-column")
+def add_palabra_clave_column():
+    """Endpoint para agregar columna palabra_clave (debug only)"""
+    try:
+        execute("ALTER TABLE negocios ADD COLUMN IF NOT EXISTS palabra_clave VARCHAR(100)")
+        return jsonify({"ok": True, "mensaje": "Columna palabra_clave agregada"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.after_request
 def log_response(response):
     numero = getattr(g, "numero_cliente", "?")
