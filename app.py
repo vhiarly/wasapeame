@@ -30,6 +30,13 @@ from cliente_routes import cliente_bp
 load_dotenv()
 init_pool()
 
+# Corre migraciones automáticamente
+try:
+    from migrate import migrate as run_migrate
+    run_migrate()
+except Exception as e:
+    print(f"[STARTUP] Migration error: {e}")
+
 execute("DELETE FROM conversaciones_pedidos WHERE timeout_en < NOW()")
 execute("CREATE TABLE IF NOT EXISTS clientes_vistos (numero TEXT PRIMARY KEY)")
 execute("CREATE TABLE IF NOT EXISTS clientes (numero TEXT PRIMARY KEY, nombre TEXT, email TEXT)")
