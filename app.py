@@ -38,6 +38,7 @@ try:
     execute("CREATE TABLE IF NOT EXISTS clientes_vistos (numero TEXT PRIMARY KEY)")
     execute("CREATE TABLE IF NOT EXISTS clientes (numero TEXT PRIMARY KEY, nombre TEXT, email TEXT)")
     execute("ALTER TABLE conversaciones_registro ADD COLUMN IF NOT EXISTS datos JSONB NOT NULL DEFAULT '{}'")
+    execute("ALTER TABLE negocios ADD COLUMN IF NOT EXISTS palabra_clave VARCHAR(100)")
 except:
     pass
 
